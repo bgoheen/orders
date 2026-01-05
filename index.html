@@ -490,19 +490,8 @@ Email: ${order.email || 'N/A'}`;
                                 }
                             }, 100);
                         <\/script>
-                            <label class="text-sm text-gray-600">Borrower(s)</label>
-                            <div class="relative">
-                                <input type="text" id="edit-borrower" value="${o.borrower || ''}" 
-                                    ${data.editing ? `onchange="updateField('borrower', this.value)"` : 'disabled'}
-                                    class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
-                                ${o.borrower ? `
-                                    <button onclick="event.preventDefault(); copyToClipboard('${(o.borrower || '').replace(/'/g, "\\\\'")}', 'Borrower')" 
-                                            class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
-                                        Copy
-                                    </button>
-                                ` : ''}
-                            </div>
-                        </div>
+                        <div><label class="text-sm text-gray-600">Borrower(s)</label>
+                            <input type="text" id="new-borrower" class="w-full mt-1 px-3 py-2 border rounded" /></div>
                         <div><label class="text-sm text-gray-600">POC</label>
                             <input type="text" id="new-poc" class="w-full mt-1 px-3 py-2 border rounded" /></div>
                         <div class="grid grid-cols-2 gap-4">
