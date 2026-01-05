@@ -517,7 +517,9 @@ Email: ${order.email || 'N/A'}`;
         function toggleCollapse(s) { data.collapsed[s] = !data.collapsed[s]; render(); }
         function renderDetail() {
             const o = data.selected;
-            return `<div class="w-full md:w-[600px] bg-white border-l overflow-y-auto">
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-20 z-40" onclick="data.selected = null; data.editing = false; render();"></div>
+                <div class="w-full md:w-[600px] bg-white border-l overflow-y-auto relative z-50">                
                 <div class="sticky top-0 bg-white border-b p-4 flex justify-between z-10">
                     <h2 class="text-xl font-bold">${o.name}</h2>
                     <div class="flex gap-2">
@@ -685,7 +687,8 @@ Email: ${order.email || 'N/A'}`;
                         </div>
                     </div>
                 </div>
-            </div>`;
+            </div>
+        </div>`;
         }
 
         function renderDetailField(label, field, type = 'text', options = []) {
