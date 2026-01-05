@@ -17,7 +17,7 @@
             selected: null,
             showNew: false,
             editing: false,
-            collapsed: {}
+            collapsed: {COMPLETED: true}
         };
 
         function save() {
@@ -56,7 +56,15 @@
         function openMap(addr) {
             window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(addr), '_blank');
         }
-      function render() {
+
+        function copyToClipboard(text, fieldName) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert(`${fieldName} copied!`);
+            }).catch(() => {
+                alert('Failed to copy');
+            });
+        }
+        function render() {
             document.getElementById('app').innerHTML = `
                 <div class="h-screen flex flex-col">
                     <div class="bg-white border-b px-6 py-4 flex justify-between items-center">
@@ -88,18 +96,25 @@
             if (!date) return '-';
             const [year, month, day] = date.split('-');
             const d = new Date(year, month - 1, day);
-            return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            return `${mm}/${dd}/${yyyy}`;
         }
 
         function formatDateTime(date, time) {
             if (!date) return '-';
-            const [year, month, day] = date.split('-');
-            const d = new Date(year, month - 1, day);
-            let str = d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
-            if (time) str += ', ' + time;
+            let str = formatDate(date);
+            if (time) {
+                const [hours, minutes] = time.split(':');
+                const h = parseInt(hours);
+                const ampm = h >= 12 ? 'pm' : 'am';
+                const h12 = h % 12 || 12;
+                str += ` ${h12}:${minutes}${ampm}`;
+            }
             return str;
         }
-      function renderList() {
+        function renderList() {
             const groups = {
                 ORDERED: data.orders.filter(o => o.stat === 'ORDERED'),
                 COMPLETED: data.orders.filter(o => o.stat === 'COMPLETED')
@@ -129,7 +144,10 @@
                                     </thead>
                                     <tbody>
                                         ${orders.map(o => `
-                                            <tr class="border-b last:border-b-0 hover:bg-gray-50 cursor-pointer ${data.selected?.id === o.id ? 'bg-blue-50' : ''}" 
+                                            <tr class="border-b last:border-b-0 hover:bg-gray-50 cursor-pointer ${
+                                                data.selected?.id === o.id ? 'bg-blue-50' : 
+                                                o.fha ? 'bg-yellow-50' : ''
+                                            }" 
                                                 onclick="selectOrder(${o.id})">
                                                 <td class="px-4 py-3 font-medium">${o.name}</td>
                                                 <td class="px-4 py-3 text-gray-600">${formatDateTime(o.startDate, o.startTime)}</td>
@@ -152,19 +170,20 @@
                 `).join('')}
             </div>`;
         }
-      function renderMap() {
+        function renderMap() {
             return `<div class="flex-1 p-6">
                 <div class="bg-white rounded-lg shadow h-full p-6 overflow-y-auto">
                     <h2 class="text-xl font-bold mb-4">Order Locations</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         ${data.orders.map(o => `
-                            <div onclick="selectOrder(${o.id})" class="border rounded-lg p-4 cursor-pointer hover:shadow-lg">
+                            <div onclick="selectOrder(${o.id})" class="border rounded-lg p-4 cursor-pointer hover:shadow-lg ${o.fha ? 'bg-yellow-50' : ''}">
                                 <h3 class="font-semibold truncate">${o.name}</h3>
                                 <p class="text-sm text-gray-600 mt-1">${o.addr}</p>
                                 <div class="mt-2 flex gap-2 items-center flex-wrap">
                                     <span class="px-2 py-1 rounded text-xs text-white ${
                                         o.stat === 'ORDERED' ? 'bg-orange-500' : 'bg-green-500'
                                     }">${o.stat}</span>
+                                    ${o.fha ? '<span class="px-2 py-1 rounded text-xs bg-yellow-500 text-white">FHA</span>' : ''}
                                     <span class="text-xs text-gray-500">Due: ${formatDate(o.dueDate)}</span>
                                 </div>
                                 <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.addr)}" 
@@ -213,7 +232,7 @@ Email: ${order.email || 'N/A'}`;
             
             return 'https://calendar.google.com/calendar/u/0/r/eventedit?' + params.toString();
         }
-      function renderDetail() {
+        function renderDetail() {
             const o = data.selected;
             return `<div class="w-full md:w-[600px] bg-white border-l overflow-y-auto">
                 <div class="sticky top-0 bg-white border-b p-4 flex justify-between z-10">
@@ -244,6 +263,16 @@ Email: ${order.email || 'N/A'}`;
                     ` : ''}
                     
                     ${renderDetailField('Status', 'stat', 'select', ['ORDERED', 'COMPLETED'])}
+                    
+                    <div>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" ${o.fha ? 'checked' : ''} 
+                                   ${data.editing ? `onchange="updateField('fha', this.checked)"` : 'disabled'}
+                                   class="w-4 h-4 text-blue-600 rounded" />
+                            <span class="text-sm text-gray-600">FHA</span>
+                        </label>
+                    </div>
+                    
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="text-sm text-gray-600">Start Date</label>
@@ -304,14 +333,53 @@ Email: ${order.email || 'N/A'}`;
                             <input type="text" value="${o.client || ''}" disabled class="w-full mt-1 px-3 py-2 border rounded bg-gray-50" />
                         `}
                     </div>
-                    ${renderDetailField('Borrower(s)', 'borrower')}
+                    <div>
+                        <label class="text-sm text-gray-600">Borrower(s)</label>
+                        <div class="relative">
+                            <input type="text" value="${o.borrower || ''}" 
+                                ${data.editing ? `onchange="updateField('borrower', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.borrower ? `
+                                <button onclick="copyToClipboard('${(o.borrower || '').replace(/'/g, "\\'")}', 'Borrower')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
                     ${renderDetailField('POC', 'poc')}
                     <div class="grid grid-cols-2 gap-4">
                         ${renderDetailField('POC Phone', 'phone')}
                         ${renderDetailField('POC Email', 'email')}
                     </div>
-                    ${renderDetailField('Loan #', 'loan')}
-                    ${renderDetailField('Order #', 'num')}
+                    <div>
+                        <label class="text-sm text-gray-600">Loan #</label>
+                        <div class="relative">
+                            <input type="text" value="${o.loan || ''}" 
+                                ${data.editing ? `onchange="updateField('loan', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.loan ? `
+                                <button onclick="copyToClipboard('${(o.loan || '').replace(/'/g, "\\'")}', 'Loan #')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Order #</label>
+                        <div class="relative">
+                            <input type="text" value="${o.num || ''}" 
+                                ${data.editing ? `onchange="updateField('num', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.num ? `
+                                <button onclick="copyToClipboard('${(o.num || '').replace(/'/g, "\\'")}', 'Order #')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
                     
                     <div>
                         <div class="flex justify-between mb-2">
@@ -360,7 +428,7 @@ Email: ${order.email || 'N/A'}`;
                     class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
             </div>`;
         }
-      function renderNewModal() {
+        function renderNewModal() {
             return `<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                 <div class="bg-white rounded-lg w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
                     <div class="sticky top-0 bg-white border-b p-4 flex justify-between">
@@ -375,6 +443,12 @@ Email: ${order.email || 'N/A'}`;
                                 <option value="ORDERED">Ordered</option>
                                 <option value="COMPLETED">Completed</option>
                             </select></div>
+                        <div>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="new-fha" class="w-4 h-4 text-blue-600 rounded" />
+                                <span class="text-sm text-gray-600">FHA</span>
+                            </label>
+                        </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div><label class="text-sm text-gray-600">Start Date</label>
                                 <input type="date" id="new-startDate" onfocus="this.showPicker()" class="w-full mt-1 px-3 py-2 border rounded" /></div>
@@ -420,7 +494,7 @@ Email: ${order.email || 'N/A'}`;
                             <input type="text" id="new-borrower" class="w-full mt-1 px-3 py-2 border rounded" /></div>
                         <div><label class="text-sm text-gray-600">POC</label>
                             <input type="text" id="new-poc" class="w-full mt-1 px-3 py-2 border rounded" /></div>
-                            <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-2 gap-4">
                             <div><label class="text-sm text-gray-600">POC Phone</label>
                                 <input type="text" id="new-phone" class="w-full mt-1 px-3 py-2 border rounded" /></div>
                             <div><label class="text-sm text-gray-600">POC Email</label>
@@ -439,7 +513,6 @@ Email: ${order.email || 'N/A'}`;
                 </div>
             </div>`;
         }
-
         function setView(v) { data.view = v; render(); }
         function toggleCollapse(s) { data.collapsed[s] = !data.collapsed[s]; render(); }
         function selectOrder(id) { data.selected = data.orders.find(o => o.id === id); data.editing = true; render(); }
@@ -510,6 +583,7 @@ Email: ${order.email || 'N/A'}`;
                 id: Date.now(),
                 name,
                 stat: document.getElementById('new-stat').value,
+                fha: document.getElementById('new-fha').checked,
                 startDate: document.getElementById('new-startDate').value,
                 startTime: document.getElementById('new-startTime').value,
                 dueDate: document.getElementById('new-dueDate').value,
