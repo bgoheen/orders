@@ -77,7 +77,7 @@
                         </div>
                         <button onclick="data.showNew = true; render()" class="bg-blue-600 text-white px-4 py-2 rounded">+ New Order</button>
                     </div>
-                    <div class="flex-1 flex overflow-hidden">
+                    <div class="flex-1 flex overflow-hidden" onclick="if(event.target === this) { data.selected = null; data.editing = false; render(); }">
                         ${data.view === 'list' ? renderList() : renderMap()}
                         ${data.selected ? renderDetail() : ''}
                     </div>
