@@ -490,8 +490,20 @@ Email: ${order.email || 'N/A'}`;
                                 }
                             }, 100);
                         <\/script>
-                        <div><label class="text-sm text-gray-600">Borrower(s)</label>
-                            <input type="text" id="new-borrower" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+<div>
+                            <label class="text-sm text-gray-600">Borrower(s)</label>
+                            <div class="relative">
+                                <input type="text" id="edit-borrower" value="${o.borrower || ''}" 
+                                    ${data.editing ? `onchange="updateField('borrower', this.value)"` : 'disabled'}
+                                    class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                                ${o.borrower ? `
+                                    <button onclick="event.preventDefault(); copyToClipboard('${(o.borrower || '').replace(/'/g, "\\\\'")}', 'Borrower')" 
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                        Copy
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
                         <div><label class="text-sm text-gray-600">POC</label>
                             <input type="text" id="new-poc" class="w-full mt-1 px-3 py-2 border rounded" /></div>
                         <div class="grid grid-cols-2 gap-4">
@@ -515,6 +527,202 @@ Email: ${order.email || 'N/A'}`;
         }
         function setView(v) { data.view = v; render(); }
         function toggleCollapse(s) { data.collapsed[s] = !data.collapsed[s]; render(); }
+        function renderDetail() {
+            const o = data.selected;
+            return `<div class="w-full md:w-[600px] bg-white border-l overflow-y-auto">
+                <div class="sticky top-0 bg-white border-b p-4 flex justify-between z-10">
+                    <h2 class="text-xl font-bold">${o.name}</h2>
+                    <div class="flex gap-2">
+                        ${data.editing ? `
+                            <button onclick="saveEdit()" class="px-3 py-1 bg-blue-600 text-white rounded">Save</button>
+                            <button onclick="data.editing = false; render()" class="px-3 py-1 bg-gray-200 rounded">Cancel</button>
+                        ` : `
+                            <button onclick="data.editing = true; render()" class="px-3 py-1 bg-gray-200 rounded">Edit</button>
+                        `}
+                        <button onclick="deleteOrder(${o.id})" class="px-3 py-1 text-red-600">🗑️</button>
+                        <button onclick="data.selected = null; data.editing = false; render()" class="px-3 py-1">✕</button>
+                    </div>
+                </div>
+                <div class="p-6 space-y-4">
+                    ${o.startDate ? `
+                    <div class="border-b pb-4 mb-4">
+                        <a href="${createGoogleCalendarLink(o)}" 
+                           target="_blank"
+                           class="w-full inline-block text-center bg-blue-500 hover:bg-blue-600 text-white py-3 px-4 rounded-lg font-medium">
+                            📅 Add to Google Calendar
+                        </a>
+                        <p class="text-xs text-gray-500 mt-2 text-center">
+                            Opens Google Calendar - manually select "Clickup" calendar
+                        </p>
+                    </div>
+                    ` : ''}
+                    
+                    ${renderDetailField('Status', 'stat', 'select', ['ORDERED', 'COMPLETED'])}
+                    
+                    <div>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" ${o.fha ? 'checked' : ''} 
+                                   ${data.editing ? `onchange="updateField('fha', this.checked)"` : 'disabled'}
+                                   class="w-4 h-4 text-blue-600 rounded" />
+                            <span class="text-sm text-gray-600">FHA</span>
+                        </label>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-sm text-gray-600">Start Date</label>
+                            <input type="date" id="edit-startDate" value="${o.startDate || ''}" 
+                                ${data.editing ? `onchange="updateField('startDate', this.value)" onfocus="this.showPicker()"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-600">Start Time</label>
+                            <input type="time" id="edit-startTime" value="${o.startTime || ''}" 
+                                ${data.editing ? `onchange="updateField('startTime', this.value)" onfocus="this.showPicker()"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Due Date</label>
+                        <input type="date" id="edit-dueDate" value="${o.dueDate || ''}" 
+                            ${data.editing ? `onchange="updateField('dueDate', this.value)" onfocus="this.showPicker()"` : 'disabled'}
+                            class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Address</label>
+                        <input type="text" id="edit-addr" value="${o.addr || ''}" 
+                            ${data.editing ? `onchange="updateField('addr', this.value)"` : 'disabled'}
+                            class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                    </div>
+                    <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.addr)}" 
+                       target="_blank" class="text-blue-600 text-sm hover:underline inline-block">
+                        Open in Google Maps →
+                    </a>
+                    <div>
+                        <label class="text-sm text-gray-600">Client</label>
+                        ${data.editing ? `
+                            <div class="flex gap-2 mt-1">
+                                <select id="edit-client" onchange="updateField('client', this.value)" class="flex-1 px-3 py-2 border rounded">
+                                    <option value="">Select client...</option>
+                                    ${data.clients.map(c => `<option value="${c}" ${o.client === c ? 'selected' : ''}>${c}</option>`).join('')}
+                                    <option value="__ADD_NEW__">+ Add New Client</option>
+                                </select>
+                            </div>
+                            <script>
+                                document.getElementById('edit-client').addEventListener('change', function(e) {
+                                    if (e.target.value === '__ADD_NEW__') {
+                                        const newClient = prompt('Enter new client name:');
+                                        if (newClient && newClient.trim()) {
+                                            data.clients.push(newClient.trim());
+                                            data.clients.sort();
+                                            saveClients();
+                                            updateField('client', newClient.trim());
+                                            render();
+                                        } else {
+                                            e.target.value = data.selected.client || '';
+                                        }
+                                    }
+                                });
+                            <\/script>
+                        ` : `
+                            <input type="text" value="${o.client || ''}" disabled class="w-full mt-1 px-3 py-2 border rounded bg-gray-50" />
+                        `}
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Borrower(s)</label>
+                        <div class="relative">
+                            <input type="text" id="edit-borrower" value="${o.borrower || ''}" 
+                                ${data.editing ? `onchange="updateField('borrower', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.borrower ? `
+                                <button onclick="event.preventDefault(); copyToClipboard('${(o.borrower || '').replace(/'/g, "\\\\'")}', 'Borrower')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ${renderDetailField('POC', 'poc')}
+                    <div class="grid grid-cols-2 gap-4">
+                        ${renderDetailField('POC Phone', 'phone')}
+                        ${renderDetailField('POC Email', 'email')}
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Loan #</label>
+                        <div class="relative">
+                            <input type="text" id="edit-loan" value="${o.loan || ''}" 
+                                ${data.editing ? `onchange="updateField('loan', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.loan ? `
+                                <button onclick="event.preventDefault(); copyToClipboard('${(o.loan || '').replace(/'/g, "\\\\'")}', 'Loan #')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Order #</label>
+                        <div class="relative">
+                            <input type="text" id="edit-num" value="${o.num || ''}" 
+                                ${data.editing ? `onchange="updateField('num', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.num ? `
+                                <button onclick="event.preventDefault(); copyToClipboard('${(o.num || '').replace(/'/g, "\\\\'")}', 'Order #')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm text-gray-600">Attachments (${(o.att || []).length})</label>
+                            <label class="cursor-pointer px-3 py-1 bg-gray-200 rounded text-sm">
+                                <input type="file" multiple onchange="uploadFiles(event)" class="hidden" />
+                                Upload
+                            </label>
+                        </div>
+                        <div class="space-y-2">
+                            ${(o.att || []).map(a => `
+                                <div class="flex justify-between items-center p-2 border rounded hover:bg-gray-50">
+                                    <div class="flex-1 cursor-pointer" onclick="downloadFile(${JSON.stringify(a).replace(/"/g, '&quot;')})">
+                                        <div class="text-sm text-blue-600 hover:underline">${a.name}</div>
+                                        <div class="text-xs text-gray-500">${a.date} • ${Math.round(a.size / 1024)}KB</div>
+                                    </div>
+                                    <button onclick="removeFile(${a.id})" class="text-red-600 px-2 hover:bg-red-50 rounded">🗑️</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderDetailField(label, field, type = 'text', options = []) {
+            const val = data.selected[field] || '';
+            if (type === 'select') {
+                return `<div>
+                    <label class="text-sm text-gray-600">${label}</label>
+                    ${data.editing ? `
+                        <select onchange="updateField('${field}', this.value)" class="w-full mt-1 px-3 py-2 border rounded">
+                            ${options.map(opt => `<option value="${opt}" ${val === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+                        </select>
+                    ` : `
+                        <div class="mt-1 px-3 py-1 rounded text-white text-sm inline-block ${
+                            val === 'ORDERED' ? 'bg-orange-500' : 'bg-green-500'
+                        }">${val}</div>
+                    `}
+                </div>`;
+            }
+            return `<div>
+                <label class="text-sm text-gray-600">${label}</label>
+                <input type="${type}" value="${val}" 
+                    ${data.editing ? `onchange="updateField('${field}', this.value)"` : 'disabled'}
+                    class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+            </div>`;
+        }
         function selectOrder(id) { data.selected = data.orders.find(o => o.id === id); data.editing = true; render(); }
         function updateField(f, v) { data.selected[f] = v; }
         function saveEdit() { 
