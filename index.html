@@ -87,6 +87,26 @@
             `;
             if (data.showNew) {
                 initAutocomplete('new-addr');
+             // Add client dropdown handler
+            const clientSelect = document.getElementById('edit-client');
+            if (clientSelect) {
+                clientSelect.addEventListener('change', function(e) {
+                    if (e.target.value === '__ADD_NEW__') {
+                        const newClient = prompt('Enter new client name:');
+                        if (newClient && newClient.trim()) {
+                            data.clients.push(newClient.trim());
+                            data.clients.sort();
+                            saveClients();
+                            data.selected.client = newClient.trim();
+                            render();
+                        } else {
+                            e.target.value = data.selected.client || '';
+                        }
+                    } else {
+                        data.selected.client = e.target.value;
+                    }
+                });
+            }
             }
             if (data.editing && data.selected) {
                 initAutocomplete('edit-addr');
@@ -116,9 +136,17 @@
             return str;
         }
         function renderList() {
-            const groups = {
-                ORDERED: data.orders.filter(o => o.stat === 'ORDERED'),
-                COMPLETED: data.orders.filter(o => o.stat === 'COMPLETED')
+        const groups = {
+                ORDERED: data.orders.filter(o => o.stat === 'ORDERED').sort((a, b) => {
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return new Date(a.dueDate) - new Date(b.dueDate);
+                }),
+                COMPLETED: data.orders.filter(o => o.stat === 'COMPLETED').sort((a, b) => {
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return new Date(a.dueDate) - new Date(b.dueDate);
+                })
             };
             const colors = { ORDERED: 'bg-orange-500', COMPLETED: 'bg-green-500' };
 
@@ -593,28 +621,12 @@ Email: ${order.email || 'N/A'}`;
                         <label class="text-sm text-gray-600">Client</label>
                         ${data.editing ? `
                             <div class="flex gap-2 mt-1">
-                                <select id="edit-client" onchange="updateField('client', this.value)" class="flex-1 px-3 py-2 border rounded">
+                                <select id="edit-client" class="flex-1 px-3 py-2 border rounded">
                                     <option value="">Select client...</option>
                                     ${data.clients.map(c => `<option value="${c}" ${o.client === c ? 'selected' : ''}>${c}</option>`).join('')}
                                     <option value="__ADD_NEW__">+ Add New Client</option>
                                 </select>
                             </div>
-                            <script>
-                                document.getElementById('edit-client').addEventListener('change', function(e) {
-                                    if (e.target.value === '__ADD_NEW__') {
-                                        const newClient = prompt('Enter new client name:');
-                                        if (newClient && newClient.trim()) {
-                                            data.clients.push(newClient.trim());
-                                            data.clients.sort();
-                                            saveClients();
-                                            updateField('client', newClient.trim());
-                                            render();
-                                        } else {
-                                            e.target.value = data.selected.client || '';
-                                        }
-                                    }
-                                });
-                            <\/script>
                         ` : `
                             <input type="text" value="${o.client || ''}" disabled class="w-full mt-1 px-3 py-2 border rounded bg-gray-50" />
                         `}
