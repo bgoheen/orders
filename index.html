@@ -20,13 +20,9 @@
             collapsed: {COMPLETED: true}
         };
 
-        window.save = function() {
-            try {
-                localStorage.setItem('orders', JSON.stringify(data.orders));
-                console.log('Orders saved successfully');
-            } catch(e) {
-                console.error('Save failed:', e);
-            }
+        function save() {
+            localStorage.setItem('orders', JSON.stringify(data.orders));
+            console.log('Orders saved:', data.orders.length, 'orders');
         }
 
         function saveClients() {
