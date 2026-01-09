@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appraisal Manager</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHqA52DEjw6hBLLbshcNXACDYBGgXAPlE&libraries=places"></script>
+    <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+    <script>
+        function createGoogleCalendarLink(order) {
+            if (!order.startDate || !order.startTime) return '#';
+            
+            const startDateTime = order.startDate + 'T' + order.startTime + ':00';
+            const startDate = new Date(startDateTime);
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+            
+            const formatGoogleDate = (date) => {
+                return date.toISOString().replace(/-|:|\.\d+/g, '');
+            };
+            
+            const title = encodeURIComponent('Inspection: ' + order.addr);
+            const details = encodeURIComponent([
+                'Order #: ' + (order.num || ''),
+                'Client: ' + (order.client || ''),
+                'Borrower: ' + (order.borrower || ''),
+                'POC: ' + (order.poc || ''),
+                'Phone: ' + (order.phone || ''),
+                'Email: ' + (order.email || ''),
+                'Loan #: ' + (order.loan || '')
+            ].filter(Boolean).join('\n'));
+            const location = encodeURIComponent(order.addr || '');
+            const dates = formatGoogleDate(startDate) + '/' + formatGoogleDate(endDate);
+            
+            return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}`;
+        }
+
+        function formatPhone(value) {
+            // Remove all non-digits
+            const numbers = value.replace(/\D/g, '');
+            
+            // Format as (XXX) XXX-XXXX
+            if (numbers.length <= 3) {
+                return numbers;
+            } else if (numbers.length <= 6) {
+                return `(${numbers.slice(0, 3)}) ${numbers.slice(3)}`;
+            } else {
+                return `(${numbers.slice(0, 3)}) ${numbers.slice(3, 6)}-${numbers.slice(6, 10)}`;
+            }
+        }
+
+        // Microsoft Authentication Configuration
+        const msalConfig = {
+            auth: {
+                clientId: '89d0320b-597e-4405-8ccd-7beeb8e25566',
+                authority: 'https://login.microsoftonline.com/consumers',
+                redirectUri: 'https://bgoheen.github.io/orders'
+            },
+            cache: {
+                cacheLocation: 'localStorage',
+                storeAuthStateInCookie: false
+            }
+        };
+
+        const msalInstance = new msal.PublicClientApplication(msalConfig);
+        let msalAccount = null;
+        let accessToken = null;
+
+        const loginRequest = {
+            scopes: ['Files.ReadWrite', 'User.Read', 'offline_access']
+        };
+
+        // Initialize MSAL
+        msalInstance.initialize().then(() => {
+            msalInstance.handleRedirectPromise().then(async response => {
+                if (response) {
+                    msalAccount = response.account;
+                    await getAccessToken();
+                    await loadOrdersFromOneDrive();
+                    
+                    // If we're in a popup, close it
+                    if (window.opener && !window.opener.closed) {
+                        window.opener.postMessage('auth-complete', '*');
+                        window.close();
+                    }
+                } else {
+                    const accounts = msalInstance.getAllAccounts();
+                    if (accounts.length > 0) {
+                        msalAccount = accounts[0];
+                        await getAccessToken();
+                        await loadOrdersFromOneDrive();
+                    }
+                }
+                
+                render();
+            }).catch(err => {
+                console.error('MSAL error:', err);
+                render();
+            });
+        });
+
+        // Listen for auth completion from popup
+        window.addEventListener('message', (event) => {
+            if (event.data === 'auth-complete') {
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    msalAccount = accounts[0];
+                    getAccessToken().then(() => {
+                        loadOrdersFromOneDrive().then(() => {
+                            render();
+                        });
+                    });
+                }
+            }
+        });
+
+        // Detect if on mobile device
+        function isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
+        async function signIn() {
+            try {
+                if (isMobile()) {
+                    // Use redirect for mobile
+                    await msalInstance.loginRedirect(loginRequest);
+                } else {
+                    // Use popup for desktop
+                    const response = await msalInstance.loginPopup(loginRequest);
+                    msalAccount = response.account;
+                    await getAccessToken();
+                    
+                    // Load orders from OneDrive after signing in
+                    await loadOrdersFromOneDrive();
+                    
+                    render();
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Failed to sign in: ' + error.message);
+            }
+        }
+
+        async function syncToOneDrive() {
+            if (!msalAccount) {
+                alert('Please sign in first');
+                return;
+            }
+            
+            try {
+                // First load from OneDrive to get latest
+                await loadOrdersFromOneDrive();
+                // Then save current state to OneDrive
+                await saveOrdersToOneDrive();
+                console.log('Background sync completed');
+                render();
+            } catch (error) {
+                console.error('Sync error:', error);
+            }
+        }
+
+        // Background sync disabled - orders sync when you save them
+        // Auto-sync every 30 seconds when signed in
+        // setInterval(() => {
+        //     if (msalAccount && accessToken) {
+        //         loadOrdersFromOneDrive().catch(err => {
+        //             console.error('Background sync failed:', err);
+        //         });
+        //     }
+        // }, 30000); // 30 seconds
+
+        function signOut() {
+            msalInstance.logoutPopup();
+            msalAccount = null;
+            accessToken = null;
+            render();
+        }
+
+        async function getAccessToken() {
+            const request = {
+                scopes: loginRequest.scopes,
+                account: msalAccount
+            };
+
+            try {
+                const response = await msalInstance.acquireTokenSilent(request);
+                accessToken = response.accessToken;
+                return accessToken;
+            } catch (error) {
+                if (error instanceof msal.InteractionRequiredAuthError) {
+                    const response = await msalInstance.acquireTokenPopup(request);
+                    accessToken = response.accessToken;
+                    return accessToken;
+                }
+                throw error;
+            }
+        }
+
+        // OneDrive file operations
+        async function uploadToOneDrive(file, orderId) {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            const fileName = `${orderId}_${file.name}`;
+            const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/${fileName}:/content`;
+
+            try {
+                const response = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': file.type
+                    },
+                    body: file
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    return {
+                        id: result.id,
+                        name: file.name,
+                        date: new Date().toLocaleDateString(),
+                        size: file.size,
+                        webUrl: result.webUrl,
+                        downloadUrl: result['@microsoft.graph.downloadUrl']
+                    };
+                } else {
+                    throw new Error('Upload failed: ' + response.statusText);
+                }
+            } catch (error) {
+                console.error('OneDrive upload error:', error);
+                throw error;
+            }
+        }
+
+        async function downloadFromOneDrive(fileId) {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            try {
+                const response = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                const fileInfo = await response.json();
+                if (fileInfo['@microsoft.graph.downloadUrl']) {
+                    window.open(fileInfo['@microsoft.graph.downloadUrl'], '_blank');
+                }
+            } catch (error) {
+                console.error('OneDrive download error:', error);
+                alert('Failed to download file');
+            }
+        }
+
+        async function deleteFromOneDrive(fileId) {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            try {
+                await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+            } catch (error) {
+                console.error('OneDrive delete error:', error);
+            }
+        }
+
+        const data = {
+            orders: JSON.parse(localStorage.getItem('orders') || '[]'),
+            clients: JSON.parse(localStorage.getItem('clients') || '["Members", "Temple View"]'),
+            view: 'list',
+            selected: null,
+            showNew: false,
+            editing: false,
+            collapsed: {COMPLETED: true},
+            sortBy: 'dueDate', // 'dueDate' or 'startDate'
+            sortDir: 'asc' // 'asc' or 'desc'
+        };
+
+        async function save() {
+            localStorage.setItem('orders', JSON.stringify(data.orders));
+            localStorage.setItem('localModified', Date.now().toString());
+            console.log('Orders saved to localStorage:', data.orders.length, 'orders');
+            
+            // Save to OneDrive if signed in
+            if (msalAccount && accessToken) {
+                try {
+                    await saveOrdersToOneDrive();
+                    localStorage.setItem('lastOneDriveSync', Date.now().toString());
+                } catch (error) {
+                    console.error('Failed to sync to OneDrive:', error);
+                }
+            }
+        }
+
+        async function saveOrdersToOneDrive() {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            const ordersData = JSON.stringify(data.orders);
+            const blob = new Blob([ordersData], { type: 'application/json' });
+            
+            const uploadUrl = 'https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/orders.json:/content';
+
+            try {
+                const response = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: blob
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save to OneDrive: ' + response.statusText);
+                }
+                console.log('Orders synced to OneDrive successfully');
+            } catch (error) {
+                console.error('OneDrive save error:', error);
+                throw error;
+            }
+        }
+
+        async function loadOrdersFromOneDrive() {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            try {
+                const response = await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/orders.json:/content', {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const ordersData = await response.json();
+                    
+                    // Check if we have unsaved local changes
+                    const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+                    const lastSync = localStorage.getItem('lastOneDriveSync');
+                    const localModified = localStorage.getItem('localModified');
+                    
+                    // If local was modified after last sync, don't overwrite
+                    if (localModified && lastSync && parseInt(localModified) > parseInt(lastSync)) {
+                        console.log('Local changes detected - keeping local data and syncing to OneDrive...');
+                        data.orders = localOrders;
+                        await saveOrdersToOneDrive(); // Push local changes to OneDrive
+                    } else {
+                        // OneDrive is newer, use it
+                        data.orders = ordersData;
+                        localStorage.setItem('orders', JSON.stringify(data.orders));
+                        localStorage.setItem('lastOneDriveSync', Date.now().toString());
+                        console.log('Orders loaded from OneDrive:', data.orders.length, 'orders');
+                    }
+                    render();
+                } else if (response.status === 404) {
+                    // File doesn't exist yet, use localStorage data
+                    console.log('No orders file in OneDrive yet, using localStorage');
+                } else {
+                    throw new Error('Failed to load from OneDrive: ' + response.statusText);
+                }
+            } catch (error) {
+                console.error('OneDrive load error:', error);
+            }
+        }
+
+        function saveClients() {
+            localStorage.setItem('clients', JSON.stringify(data.clients));
+        }
+
+        function genNumber() {
+            const y = new Date().getFullYear();
+            const max = data.orders.filter(o => o.num?.startsWith(y + '-'))
+                .reduce((m, o) => Math.max(m, parseInt(o.num.split('-')[1]) || 0), 0);
+            return y + '-' + String(max + 1).padStart(3, '0');
+        }
+
+        let autocompleteInstances = {};
+        
+        function initAutocomplete(inputId) {
+            setTimeout(() => {
+                const input = document.getElementById(inputId);
+                if (!input) return;
+                
+                // Clean up old instance if it exists
+                if (autocompleteInstances[inputId]) {
+                    google.maps.event.clearInstanceListeners(input);
+                }
+                
+                if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+                    const autocomplete = new google.maps.places.Autocomplete(input, {
+                        types: ['address'],
+                        componentRestrictions: { country: 'us' }
+                    });
+                    autocomplete.addListener('place_changed', () => {
+                        const place = autocomplete.getPlace();
+                        if (place.formatted_address) {
+                            input.value = place.formatted_address;
+                        }
+                    });
+                    autocompleteInstances[inputId] = autocomplete;
+                }
+            }, 100);
+        }
+
+        function openMap(addr) {
+            window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(addr), '_blank');
+        }
+
+        function copyToClipboard(e, text, fieldName) {
+            e.preventDefault();
+            // Try modern clipboard API first
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    // Change button to green checkmark
+                    const btn = e.target.closest('button');
+                    if (!btn) return;
+                    
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '✓';
+                    btn.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                    btn.classList.add('bg-green-500', 'text-white');
+                    
+                    // Reset after 2 seconds
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.classList.remove('bg-green-500', 'text-white');
+                        btn.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                    }, 2000);
+                }).catch((err) => {
+                    console.error('Clipboard API failed:', err);
+                    fallbackCopy(e, text, fieldName);
+                });
+            } else {
+                // Fallback for older browsers
+                fallbackCopy(e, text, fieldName);
+            }
+        }
+        
+        function fallbackCopy(e, text, fieldName) {
+            // Create temporary textarea
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                const btn = e.target.closest('button');
+                if (btn) {
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '✓';
+                    btn.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                    btn.classList.add('bg-green-500', 'text-white');
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.classList.remove('bg-green-500', 'text-white');
+                        btn.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                    }, 2000);
+                }
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+                alert('Failed to copy');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+        function render() {
+            document.getElementById('app').innerHTML = `
+                <div class="h-screen flex flex-col">
+                    <div class="bg-white border-b px-6 py-4 flex justify-between items-center">
+                        <h1 class="text-2xl font-bold">Appraisal Orders</h1>
+                        <div class="flex gap-2 items-center">
+                            ${msalAccount ? `
+                                <div class="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg shadow-sm">
+                                    <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span class="text-sm font-medium text-gray-700">OneDrive</span>
+                                </div>
+                            ` : `
+                                <button onclick="signIn()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 shadow-sm">🔒 Sign in to OneDrive</button>
+                            `}
+                            <button onclick="data.showNew = true; render()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 shadow-sm">+ New Order</button>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-hidden">
+                        ${renderList()}
+                    </div>
+                    ${data.selected ? renderDetail() : ''}
+                    ${data.showNew ? renderNewModal() : ''}
+                </div>
+            `;
+            if (data.showNew) {
+                initAutocomplete('new-addr');
+                // Add client dropdown handler for new order modal
+                const newClientSelect = document.getElementById('new-client');
+                if (newClientSelect) {
+                    newClientSelect.addEventListener('change', function(e) {
+                        if (e.target.value === '__ADD_NEW__') {
+                            const newClient = prompt('Enter new client name:');
+                            if (newClient && newClient.trim()) {
+                                data.clients.push(newClient.trim());
+                                data.clients.sort();
+                                saveClients();
+                                // Re-render to update the dropdown with new client
+                                data.showNew = true;
+                                render();
+                                // Set the new client value after re-render
+                                setTimeout(() => {
+                                    const select = document.getElementById('new-client');
+                                    if (select) select.value = newClient.trim();
+                                }, 50);
+                            } else {
+                                e.target.value = '';
+                            }
+                        }
+                    });
+                }
+            }
+            // Add client dropdown handler for edit mode
+            if (data.editing && data.selected) {
+                initAutocomplete('edit-addr');
+                const clientSelect = document.getElementById('edit-client');
+                if (clientSelect) {
+                    clientSelect.addEventListener('change', function(e) {
+                        if (e.target.value === '__ADD_NEW__') {
+                            const newClient = prompt('Enter new client name:');
+                            if (newClient && newClient.trim()) {
+                                data.clients.push(newClient.trim());
+                                data.clients.sort();
+                                saveClients();
+                                data.selected.client = newClient.trim();
+                                render();
+                            } else {
+                                e.target.value = data.selected.client || '';
+                            }
+                        } else {
+                            data.selected.client = e.target.value;
+                        }
+                    });
+                }
+            }
+            if (data.editing && data.selected) {
+                initAutocomplete('edit-addr');
+            }
+        }
+
+        function formatDate(date) {
+            if (!date) return '-';
+            const [year, month, day] = date.split('-');
+            const d = new Date(year, month - 1, day);
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            return `${mm}/${dd}/${yyyy}`;
+        }
+
+        function formatDateTime(date, time) {
+            if (!date) return '-';
+            let str = formatDate(date);
+            if (time) {
+                const [hours, minutes] = time.split(':');
+                const h = parseInt(hours);
+                const ampm = h >= 12 ? 'pm' : 'am';
+                const h12 = h % 12 || 12;
+                str += ` ${h12}:${minutes}${ampm}`;
+            }
+            return str;
+        }
+        function renderList() {
+            // Sort function based on current sort settings
+            const sortOrders = (orders) => {
+                return [...orders].sort((a, b) => {
+                    const field = data.sortBy;
+                    const aVal = field === 'startDate' ? (a.startDate || '') : (a.dueDate || '');
+                    const bVal = field === 'startDate' ? (b.startDate || '') : (b.dueDate || '');
+                    
+                    if (!aVal) return 1;
+                    if (!bVal) return -1;
+                    
+                    const comparison = new Date(aVal) - new Date(bVal);
+                    return data.sortDir === 'asc' ? comparison : -comparison;
+                });
+            };
+            
+            const groups = {
+                ORDERED: sortOrders(data.orders.filter(o => o.stat === 'ORDERED')),
+                COMPLETED: sortOrders(data.orders.filter(o => o.stat === 'COMPLETED'))
+            };
+            const colors = { ORDERED: 'bg-orange-500', COMPLETED: 'bg-green-500' };
+
+            return `<div class="flex-1 overflow-y-auto p-6">
+                ${Object.entries(groups).map(([stat, orders]) => `
+                    <div class="mb-6">
+                        <button onclick="toggleCollapse('${stat}')" class="flex items-center gap-2 mb-3">
+                            <span>${data.collapsed[stat] ? '▶' : '▼'}</span>
+                            <span class="${colors[stat]} text-white px-3 py-1 rounded text-sm font-semibold">${stat}</span>
+                            <span class="text-gray-500">${orders.length}</span>
+                        </button>
+                        ${!data.collapsed[stat] ? `
+                            <div class="bg-white rounded-lg border overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-50 border-b">
+                                        <tr class="text-left text-xs text-gray-500 uppercase tracking-wide">
+                                            <th class="px-4 py-3 font-medium">Address</th>
+                                            <th class="px-4 py-3 font-medium cursor-pointer hover:bg-gray-100" onclick="sortBy('startDate')">
+                                                Start Date ${data.sortBy === 'startDate' ? (data.sortDir === 'asc' ? '↑' : '↓') : ''}
+                                            </th>
+                                            <th class="px-4 py-3 font-medium cursor-pointer hover:bg-gray-100" onclick="sortBy('dueDate')">
+                                                Due ${data.sortBy === 'dueDate' ? (data.sortDir === 'asc' ? '↑' : '↓') : ''}
+                                            </th>
+                                            <th class="px-4 py-3 font-medium">Client</th>
+                                            <th class="px-4 py-3 font-medium">Order #</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${orders.map(o => `
+                                            <tr class="border-b last:border-b-0 hover:bg-gray-50 cursor-pointer ${
+                                                data.selected?.id === o.id ? 'bg-blue-50' : 
+                                                o.fha ? 'bg-yellow-50' : ''
+                                            }" 
+                                                onclick="selectOrder(${o.id})">
+                                                <td class="px-4 py-3 font-medium text-gray-900">${o.addr}</td>
+                                                <td class="px-4 py-3 text-gray-600">${formatDateTime(o.startDate, o.startTime)}</td>
+                                                <td class="px-4 py-3 text-gray-600">${formatDate(o.dueDate)}</td>
+                                                <td class="px-4 py-3 text-gray-600">${o.client || '-'}</td>
+                                                <td class="px-4 py-3">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="text-gray-600">${o.num}</span>
+                                                        <button onclick="event.stopPropagation(); openMap('${o.addr.replace(/'/g, "\\'")}')" 
+                                                           class="opacity-60 hover:opacity-100 transition-opacity"
+                                                           title="Open in Google Maps">
+                                                            <img src="map-pin.png" alt="Map" class="w-4 h-4">
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+        function renderMap() {
+            return `<div class="flex-1 p-6">
+                <div class="bg-white rounded-lg shadow h-full p-6 overflow-y-auto">
+                    <h2 class="text-xl font-bold mb-4">Order Locations</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        ${data.orders.map(o => `
+                            <div onclick="selectOrder(${o.id})" class="border rounded-lg p-4 cursor-pointer hover:shadow-lg ${o.fha ? 'bg-yellow-50' : ''}">
+                                <h3 class="font-semibold truncate">${o.name}</h3>
+                                <p class="text-sm text-gray-600 mt-1">${o.addr}</p>
+                                <div class="mt-2 flex gap-2 items-center flex-wrap">
+                                    <span class="px-2 py-1 rounded text-xs text-white ${
+                                        o.stat === 'ORDERED' ? 'bg-orange-500' : 'bg-green-500'
+                                    }">${o.stat}</span>
+                                    ${o.fha ? '<span class="px-2 py-1 rounded text-xs bg-yellow-500 text-white">FHA</span>' : ''}
+                                    <span class="text-xs text-gray-500">Due: ${formatDate(o.dueDate)}</span>
+                                </div>
+                                <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.addr)}" 
+                                   target="_blank" onclick="event.stopPropagation()" 
+                                   class="text-blue-600 text-sm mt-2 inline-block hover:underline">
+                                    Open in Google Maps →
+                                </a>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>`;
+        }
+
+
+        function renderNewModal() {
+            return `<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div class="bg-white rounded-lg w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
+                    <div class="sticky top-0 bg-white border-b p-4 flex justify-between">
+                        <h2 class="text-xl font-bold">New Order</h2>
+                        <button onclick="data.showNew = false; render()" class="text-2xl">✕</button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div><label class="text-sm text-gray-600">Address * <span class="text-xs text-gray-400">(Start typing for suggestions)</span></label>
+                            <input type="text" id="new-addr" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="text-sm text-gray-600">Start Date</label>
+                                <input type="date" id="new-startDate" onfocus="this.showPicker()" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                            <div><label class="text-sm text-gray-600">Start Time</label>
+                                <input type="time" id="new-startTime" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        </div>
+                        <div><label class="text-sm text-gray-600">Due Date</label>
+                            <input type="date" id="new-dueDate" onfocus="this.showPicker()" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        <div>
+                            <label class="text-sm text-gray-600">Client</label>
+                            <select id="new-client" class="w-full mt-1 px-3 py-2 border rounded">
+                                <option value="">Select client...</option>
+                                ${data.clients.map(c => `<option value="${c}">${c}</option>`).join('')}
+                                <option value="__ADD_NEW__">+ Add New Client</option>
+                            </select>
+                        </div>
+                        <script>
+                            setTimeout(() => {
+                                const sel = document.getElementById('new-client');
+                                if (sel) {
+                                    sel.addEventListener('change', function(e) {
+                                        if (e.target.value === '__ADD_NEW__') {
+                                            const newClient = prompt('Enter new client name:');
+                                            if (newClient && newClient.trim()) {
+                                                data.clients.push(newClient.trim());
+                                                data.clients.sort();
+                                                saveClients();
+                                                render();
+                                                setTimeout(() => {
+                                                    document.getElementById('new-client').value = newClient.trim();
+                                                }, 100);
+                                            } else {
+                                                e.target.value = '';
+                                            }
+                                        }
+                                    });
+                                }
+                            }, 100);
+                        <\/script>
+                        <div><label class="text-sm text-gray-600">Borrower(s)</label>
+                            <input type="text" id="new-borrower" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        <div><label class="text-sm text-gray-600">POC</label>
+                            <input type="text" id="new-poc" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="text-sm text-gray-600">POC Phone</label>
+                                <input type="tel" id="new-phone" class="w-full mt-1 px-3 py-2 border rounded" 
+                                    oninput="this.value = formatPhone(this.value)" 
+                                    placeholder="(612) 555-5555" /></div>
+                            <div><label class="text-sm text-gray-600">POC Email</label>
+                                <input type="text" id="new-email" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        </div>
+                        <div><label class="text-sm text-gray-600">Loan #</label>
+                            <input type="text" id="new-loan" class="w-full mt-1 px-3 py-2 border rounded" /></div>
+                        <div>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="new-fha" class="w-4 h-4 text-blue-600 rounded" />
+                                <span class="text-sm text-gray-600">FHA</span>
+                            </label>
+                        </div>
+                        <div><label class="text-sm text-gray-600">Status</label>
+                            <select id="new-stat" class="w-full mt-1 px-3 py-2 border rounded">
+                                <option value="ORDERED" selected>Ordered</option>
+                                <option value="COMPLETED">Completed</option>
+                            </select></div>
+                        <div><label class="text-sm text-gray-600">Order # (auto-generated)</label>
+                            <input type="text" id="new-num" placeholder="Leave blank for auto: 2026-001, 2026-002..." 
+                                class="w-full mt-1 px-3 py-2 border rounded bg-gray-50" /></div>
+                        <div class="flex gap-2 pt-4">
+                            <button onclick="createOrder()" class="flex-1 bg-blue-600 text-white py-2 rounded">Create Order</button>
+                            <button onclick="data.showNew = false; render()" class="px-6 bg-gray-200 py-2 rounded">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+        function setView(v) { data.view = v; render(); }
+        function toggleCollapse(s) { data.collapsed[s] = !data.collapsed[s]; render(); }
+        function sortBy(field) {
+            if (data.sortBy === field) {
+                data.sortDir = data.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                data.sortBy = field;
+                data.sortDir = 'asc';
+            }
+            render();
+        }
+        function renderDetail() {
+            const o = data.selected;
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-30 z-40 flex items-center justify-center p-4" onclick="if(event.target === event.currentTarget) { data.selected = null; data.editing = false; render(); }">
+                <div class="w-full max-w-2xl bg-white rounded-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">                
+                <div class="sticky top-0 bg-white border-b p-4 flex justify-between z-10">
+                    ${data.editing ? `
+                        <input type="text" value="${o.addr || ''}" 
+                            onchange="updateField('addr', this.value); updateField('name', this.value)"
+                            class="text-xl font-bold border-b-2 border-blue-500 px-2 py-1 flex-1 mr-4 focus:outline-none" 
+                            placeholder="Address" />
+                    ` : `
+                        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.addr)}" 
+                           target="_blank" 
+                           class="text-xl font-bold text-blue-600 hover:underline">
+                            ${o.addr}
+                        </a>
+                    `}
+                    <div class="flex gap-2">
+                        ${data.editing ? `
+                            <button onclick="saveEdit()" class="px-3 py-1 bg-blue-600 text-white rounded">Save</button>
+                            <button onclick="data.editing = false; render()" class="px-3 py-1 bg-gray-200 rounded">Cancel</button>
+                        ` : `
+                            <button onclick="data.editing = true; render()" class="px-3 py-1 bg-gray-200 rounded">Edit</button>
+                        `}
+                        <button onclick="deleteOrder(${o.id})" class="px-3 py-1 text-red-600">🗑️</button>
+                        <button onclick="data.selected = null; data.editing = false; render()" class="px-3 py-1">✕</button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto p-6 space-y-4">
+                    ${renderDetailField('Status', 'stat', 'select', ['ORDERED', 'COMPLETED'])}
+                    
+                    ${o.startDate && o.startTime ? `
+                        <div class="border-t pt-4">
+                            <a href="${createGoogleCalendarLink(o)}" 
+                               target="_blank"
+                               class="inline-flex items-center gap-2 px-4 py-2 bg-white border-2 border-blue-500 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                                Add to Google Calendar
+                            </a>
+                        </div>
+                    ` : ''}
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-sm text-gray-600">Start Date</label>
+                            <input type="date" id="edit-startDate" value="${o.startDate || ''}" 
+                                ${data.editing ? `onchange="updateField('startDate', this.value)" onfocus="this.showPicker()"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-600">Start Time</label>
+                            <input type="time" id="edit-startTime" value="${o.startTime || ''}" 
+                                ${data.editing ? `onchange="updateField('startTime', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Due Date</label>
+                        <input type="date" id="edit-dueDate" value="${o.dueDate || ''}" 
+                            ${data.editing ? `onchange="updateField('dueDate', this.value)" onfocus="this.showPicker()"` : 'disabled'}
+                            class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Client</label>
+                        ${data.editing ? `
+                            <div class="flex gap-2 mt-1">
+                                <select id="edit-client" class="flex-1 px-3 py-2 border rounded">
+                                    <option value="">Select client...</option>
+                                    ${data.clients.map(c => `<option value="${c}" ${o.client === c ? 'selected' : ''}>${c}</option>`).join('')}
+                                    <option value="__ADD_NEW__">+ Add New Client</option>
+                                </select>
+                            </div>
+                        ` : `
+                            <input type="text" value="${o.client || ''}" disabled class="w-full mt-1 px-3 py-2 border rounded bg-gray-50" />
+                        `}
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Borrower(s)</label>
+                        <div class="relative">
+                            <input type="text" id="edit-borrower" value="${o.borrower || ''}" 
+                                ${data.editing ? `onchange="updateField('borrower', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.borrower ? `
+                                <button onclick="copyToClipboard(event, '${(o.borrower || '').replace(/'/g, "\\\\'")}', 'Borrower')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ${renderDetailField('POC', 'poc')}
+                    <div class="grid grid-cols-2 gap-4">
+                        ${renderDetailField('POC Phone', 'phone')}
+                        ${renderDetailField('POC Email', 'email')}
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Loan #</label>
+                        <div class="relative">
+                            <input type="text" id="edit-loan" value="${o.loan || ''}" 
+                                ${data.editing ? `onchange="updateField('loan', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.loan ? `
+                                <button onclick="copyToClipboard(event, '${(o.loan || '').replace(/'/g, "\\\\'")}', 'Loan #')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" ${o.fha ? 'checked' : ''} 
+                                   ${data.editing ? `onchange="updateField('fha', this.checked)"` : 'disabled'}
+                                   class="w-4 h-4 text-blue-600 rounded" />
+                            <span class="text-sm text-gray-600">FHA</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">Order #</label>
+                        <div class="relative">
+                            <input type="text" id="edit-num" value="${o.num || ''}" 
+                                ${data.editing ? `onchange="updateField('num', this.value)"` : 'disabled'}
+                                class="w-full mt-1 px-3 py-2 pr-20 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+                            ${o.num ? `
+                                <button onclick="copyToClipboard(event, '${(o.num || '').replace(/'/g, "\\\\'")}', 'Order #')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="text-sm text-gray-600">Description</label>
+                        <textarea 
+                            ${data.editing ? `onchange="updateField('desc', this.value)"` : 'disabled'}
+                            class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" 
+                            rows="3">${o.desc || ''}</textarea>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm text-gray-600">Attachments (${(o.att || []).length})</label>
+                            <label class="cursor-pointer px-3 py-1 bg-gray-200 rounded text-sm">
+                                <input type="file" multiple onchange="uploadFiles(event)" class="hidden" />
+                                Upload
+                            </label>
+                        </div>
+                        <div class="space-y-2">
+                            ${(o.att || []).map(a => `
+                                <div class="flex justify-between items-center p-2 border rounded hover:bg-gray-50">
+                                    <div class="flex-1 cursor-pointer" onclick="downloadFile(${JSON.stringify(a).replace(/"/g, '&quot;')})">
+                                        <div class="text-sm text-blue-600 hover:underline">${a.name}</div>
+                                        <div class="text-xs text-gray-500">${a.date} • ${Math.round(a.size / 1024)}KB</div>
+                                    </div>
+                                    ${data.editing ? `
+                                        <button onclick="event.stopPropagation(); removeFile('${a.id}')" class="text-red-600 px-2 hover:bg-red-50 rounded">🗑️</button>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>`;
+        }
+
+        function renderDetailField(label, field, type = 'text', options = []) {
+            const val = data.selected[field] || '';
+            if (type === 'select') {
+                return `<div>
+                    <label class="text-sm text-gray-600">${label}</label>
+                    ${data.editing ? `
+                        <select onchange="updateField('${field}', this.value)" class="w-full mt-1 px-3 py-2 border rounded">
+                            ${options.map(opt => `<option value="${opt}" ${val === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+                        </select>
+                    ` : `
+                        <div class="mt-1 px-3 py-1 rounded text-white text-sm inline-block ${
+                            val === 'ORDERED' ? 'bg-orange-500' : 'bg-green-500'
+                        }">${val}</div>
+                    `}
+                </div>`;
+            }
+            const inputAttrs = field === 'phone' ? 'oninput="this.value = formatPhone(this.value)"' : '';
+            return `<div>
+                <label class="text-sm text-gray-600">${label}</label>
+                <input type="${field === 'phone' ? 'tel' : type}" value="${val}" 
+                    ${data.editing ? `onchange="updateField('${field}', this.value)" ${inputAttrs}` : 'disabled'}
+                    class="w-full mt-1 px-3 py-2 border rounded ${!data.editing ? 'bg-gray-50' : ''}" />
+            </div>`;
+        }
+        function selectOrder(id) { data.selected = data.orders.find(o => o.id === id); data.editing = true; render(); }
+        function updateField(f, v) { data.selected[f] = v; }
+        function saveEdit() { 
+            const idx = data.orders.findIndex(o => o.id === data.selected.id);
+            data.orders[idx] = data.selected;
+            save();
+            data.editing = false;
+            render();
+        }
+        async function deleteOrder(id) {
+            if (confirm('Delete this order?')) {
+                const order = data.orders.find(o => o.id === id);
+                
+                console.log('Deleting order:', order);
+                
+                data.orders = data.orders.filter(o => o.id !== id);
+                save();
+                data.selected = null;
+                render();
+            }
+        }
+        async function uploadFiles(e) {
+            if (!msalAccount) {
+                alert('Please sign in to upload files to OneDrive');
+                return;
+            }
+
+            const files = Array.from(e.target.files);
+            const uploadButton = e.target.parentElement;
+            uploadButton.innerHTML = 'Uploading...';
+            
+            try {
+                const uploadPromises = files.map(file => uploadToOneDrive(file, data.selected.id));
+                const uploadedFiles = await Promise.all(uploadPromises);
+                
+                data.selected.att = [...(data.selected.att || []), ...uploadedFiles];
+                const idx = data.orders.findIndex(o => o.id === data.selected.id);
+                data.orders[idx] = data.selected;
+                save();
+                render();
+            } catch (error) {
+                console.error('Upload error:', error);
+                alert('Failed to upload files: ' + error.message);
+                uploadButton.innerHTML = 'Upload';
+            }
+        }
+        
+        function downloadFile(attachment) {
+            if (attachment.downloadUrl) {
+                // OneDrive file
+                window.open(attachment.downloadUrl, '_blank');
+            } else if (attachment.data) {
+                // Legacy localStorage file
+                const link = document.createElement('a');
+                link.href = attachment.data;
+                link.download = attachment.name;
+                link.click();
+            }
+        }
+        
+        async function removeFile(id) {
+            const file = data.selected.att.find(a => a.id === id);
+            console.log('Removing file:', file);
+            
+            if (file && msalAccount) {
+                // Check if it's a OneDrive file (has webUrl or downloadUrl)
+                if (file.webUrl || file.downloadUrl) {
+                    try {
+                        console.log('Deleting from OneDrive, file ID:', id);
+                        await deleteFromOneDrive(id);
+                        console.log('Deleted from OneDrive successfully');
+                    } catch (error) {
+                        console.error('Error deleting from OneDrive:', error);
+                    }
+                }
+            }
+            
+            data.selected.att = data.selected.att.filter(a => a.id !== id);
+            const idx = data.orders.findIndex(o => o.id === data.selected.id);
+            data.orders[idx] = data.selected;
+            await save();
+            render();
+        }
+        async function createOrder() {
+            const addr = document.getElementById('new-addr').value;
+            if (!addr) { alert('Address required'); return; }
+            
+            const newOrder = {
+                id: Date.now(),
+                name: addr, // Use address as the name
+                stat: document.getElementById('new-stat').value,
+                fha: document.getElementById('new-fha').checked,
+                startDate: document.getElementById('new-startDate').value,
+                startTime: document.getElementById('new-startTime').value,
+                dueDate: document.getElementById('new-dueDate').value,
+                addr,
+                client: document.getElementById('new-client').value,
+                borrower: document.getElementById('new-borrower').value,
+                poc: document.getElementById('new-poc').value,
+                phone: document.getElementById('new-phone').value,
+                email: document.getElementById('new-email').value,
+                loan: document.getElementById('new-loan').value,
+                num: document.getElementById('new-num').value || genNumber(),
+                desc: '',
+                att: []
+            };
+            
+            data.orders.push(newOrder);
+            
+            save();
+            data.showNew = false;
+            render();
+        }
+
+        render();
+    </script>
+</body>
+</html>
