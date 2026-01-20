@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appraisal Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHqA52DEjw6hBLLbshcNXACDYBGgXAPlE&libraries=places"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.2s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .tab-button {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .tab-button.active {
+            background: #f3f4f6;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+    <script>
+        const data = {
+            orders: JSON.parse(localStorage.getItem('orders') || '[]'),
+            view: 'list',
+            currentTab: 'orders', // 'orders' or 'metrics'
+            metricsYear: new Date().getFullYear(),
+            selected: null,
+            showNew: false,
+            editing: false,
+            collapsed: {},
+            autocomplete: null
+        };
+
+        function save() {
+            localStorage.setItem('orders', JSON.stringify(data.orders));
+        }
+
+        function genNumber() {
+            const y = new Date().getFullYear();
+            const max = data.orders.filter(o => o.num?.startsWith(y + '-'))
+                .reduce((m, o) => Math.max(m, parseInt(o.num.split('-')[1]) || 0), 0);
+            return y + '-' + String(max + 1).padStart(3, '0');
+        }
+
+        function formatCurrency(value) {
+            if (!value) return '$0.00';
+            const num = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : value;
+            return '$' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        }
+
+        function parseCurrency(value) {
+            if (!value) return 0;
+            return parseFloat(value.replace(/[^0-9.]/g, '')) || 0;
+        }
+
+        function getOrdersByYear(year) {
+            return data.orders.filter(o => {
+                const orderYear = new Date(o.start || o.created).getFullYear();
+                return orderYear === year;
+            });
+        }
+
+        function getClientMetrics(year) {
+            const yearOrders = getOrdersByYear(year);
+            const clientData = {};
+            
+            yearOrders.forEach(order => {
+                const client = order.client || 'Unassigned';
+                if (!clientData[client]) {
+                    clientData[client] = {
+                        count: 0,
+                        revenue: 0
+                    };
+                }
+                clientData[client].count++;
+                // Only count fees for non-cancelled orders
+                if (order.fee && order.status !== 'Cancelled') {
+                    clientData[client].revenue += parseCurrency(order.fee);
+                }
+            });
+            
+            return clientData;
+        }
+
+        function getAvailableYears() {
+            const years = new Set();
+            data.orders.forEach(o => {
+                const year = new Date(o.start || o.created).getFullYear();
+                years.add(year);
+            });
+            return Array.from(years).sort((a, b) => b - a);
+        }
+
+        function initAutocomplete(inputId) {
+            setTimeout(() => {
+                const input = document.getElementById(inputId);
+                if (input && typeof google !== 'undefined') {
+                    const autocomplete = new google.maps.places.Autocomplete(input, {
+                        types: ['address'],
+                        componentRestrictions: { country: 'us' }
+                    });
+                    autocomplete.addListener('place_changed', () => {
+                        const place = autocomplete.getPlace();
+                        if (place.formatted_address) {
+                            input.value = place.formatted_address;
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        function renderMetricsTab() {
+            const years = getAvailableYears();
+            const clientMetrics = getClientMetrics(data.metricsYear);
+            const clients = Object.keys(clientMetrics).sort();
+            
+            const totalOrders = Object.values(clientMetrics).reduce((sum, c) => sum + c.count, 0);
+            const totalRevenue = Object.values(clientMetrics).reduce((sum, c) => sum + c.revenue, 0);
+            
+            return `
+                <div class="fade-in p-8 max-w-6xl mx-auto">
+                    <!-- Header -->
+                    <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h2 class="text-2xl font-semibold text-gray-900">Business Metrics</h2>
+                                <p class="text-sm text-gray-500 mt-1">Track your performance by client</p>
+                            </div>
+                            <div class="flex gap-3 items-center">
+                                <label class="text-sm font-medium text-gray-700">Year:</label>
+                                <select 
+                                    onchange="data.metricsYear = parseInt(this.value); render();"
+                                    class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                    ${years.length > 0 ? years.map(y => `
+                                        <option value="${y}" ${y === data.metricsYear ? 'selected' : ''}>${y}</option>
+                                    `).join('') : '<option value="' + new Date().getFullYear() + '">' + new Date().getFullYear() + '</option>'}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Summary Stats -->
+                        <div class="grid grid-cols-3 gap-4 mt-6">
+                            <div class="bg-blue-50 rounded-lg p-4">
+                                <div class="text-sm font-medium text-blue-600">Total Orders</div>
+                                <div class="text-2xl font-bold text-blue-900 mt-1">${totalOrders}</div>
+                            </div>
+                            <div class="bg-green-50 rounded-lg p-4">
+                                <div class="text-sm font-medium text-green-600">Total Revenue</div>
+                                <div class="text-2xl font-bold text-green-900 mt-1">${formatCurrency(totalRevenue)}</div>
+                            </div>
+                            <div class="bg-purple-50 rounded-lg p-4">
+                                <div class="text-sm font-medium text-purple-600">Avg Fee</div>
+                                <div class="text-2xl font-bold text-purple-900 mt-1">${totalOrders > 0 ? formatCurrency(totalRevenue / totalOrders) : '$0.00'}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${clients.length === 0 ? `
+                        <div class="bg-white rounded-xl shadow-sm p-12 text-center">
+                            <div class="text-gray-400 text-6xl mb-4">📊</div>
+                            <h3 class="text-xl font-semibold text-gray-700 mb-2">No data for ${data.metricsYear}</h3>
+                            <p class="text-gray-500">Complete some orders to see your metrics here</p>
+                        </div>
+                    ` : `
+                        <!-- Charts Grid -->
+                        <div class="grid grid-cols-2 gap-6 mb-6">
+                            <!-- Order Distribution -->
+                            <div class="bg-white rounded-xl shadow-sm p-6">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">Order Distribution</h3>
+                                <div class="relative" style="height: 300px;">
+                                    <canvas id="orderChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <!-- Revenue Distribution -->
+                            <div class="bg-white rounded-xl shadow-sm p-6">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">Revenue Distribution</h3>
+                                <div class="relative" style="height: 300px;">
+                                    <canvas id="revenueChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Detailed Table -->
+                        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-900">Client Breakdown</h3>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Orders</th>
+                                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Total</th>
+                                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue</th>
+                                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Fee</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        ${clients.map((client, idx) => {
+                                            const metrics = clientMetrics[client];
+                                            const percentage = ((metrics.count / totalOrders) * 100).toFixed(1);
+                                            const avgFee = metrics.count > 0 ? metrics.revenue / metrics.count : 0;
+                                            
+                                            return `
+                                                <tr class="hover:bg-gray-50 transition-colors">
+                                                    <td class="px-6 py-4 whitespace-nowrap">
+                                                        <div class="flex items-center">
+                                                            <div class="w-3 h-3 rounded-full mr-3" style="background-color: ${getChartColor(idx)}"></div>
+                                                            <div class="text-sm font-medium text-gray-900">${client}</div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">${metrics.count}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">${percentage}%</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">${formatCurrency(metrics.revenue)}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">${formatCurrency(avgFee)}</td>
+                                                </tr>
+                                            `;
+                                        }).join('')}
+                                    </tbody>
+                                    <tfoot class="bg-gray-50 font-semibold">
+                                        <tr>
+                                            <td class="px-6 py-4 text-sm text-gray-900">Total</td>
+                                            <td class="px-6 py-4 text-right text-sm text-gray-900">${totalOrders}</td>
+                                            <td class="px-6 py-4 text-right text-sm text-gray-900">100%</td>
+                                            <td class="px-6 py-4 text-right text-sm text-gray-900">${formatCurrency(totalRevenue)}</td>
+                                            <td class="px-6 py-4 text-right text-sm text-gray-900">${formatCurrency(totalRevenue / totalOrders)}</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function getChartColor(index) {
+            const colors = [
+                '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+                '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'
+            ];
+            return colors[index % colors.length];
+        }
+
+        function renderCharts() {
+            if (data.currentTab !== 'metrics') return;
+            
+            setTimeout(() => {
+                const clientMetrics = getClientMetrics(data.metricsYear);
+                const clients = Object.keys(clientMetrics).sort();
+                
+                if (clients.length === 0) return;
+                
+                const orderCounts = clients.map(c => clientMetrics[c].count);
+                const revenues = clients.map(c => clientMetrics[c].revenue);
+                const colors = clients.map((_, i) => getChartColor(i));
+                
+                // Order Distribution Chart
+                const orderCtx = document.getElementById('orderChart');
+                if (orderCtx) {
+                    new Chart(orderCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: clients,
+                            datasets: [{
+                                data: orderCounts,
+                                backgroundColor: colors,
+                                borderWidth: 2,
+                                borderColor: '#fff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        padding: 15,
+                                        font: { size: 12 }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                            return `${context.label}: ${context.parsed} orders (${percentage}%)`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Revenue Distribution Chart
+                const revenueCtx = document.getElementById('revenueChart');
+                if (revenueCtx) {
+                    new Chart(revenueCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: clients,
+                            datasets: [{
+                                data: revenues,
+                                backgroundColor: colors,
+                                borderWidth: 2,
+                                borderColor: '#fff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        padding: 15,
+                                        font: { size: 12 }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                            return `${context.label}: ${formatCurrency(context.parsed)} (${percentage}%)`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        function render() {
+            document.getElementById('app').innerHTML = `
+                <div class="h-screen flex flex-col">
+                    <!-- Header with Tabs -->
+                    <div class="bg-white border-b px-6 py-4">
+                        <div class="flex justify-between items-center mb-4">
+                            <h1 class="text-2xl font-bold text-gray-900">Metrowide Appraisals</h1>
+                        </div>
+                        
+                        <!-- Tab Navigation -->
+                        <div class="flex gap-2">
+                            <button 
+                                onclick="data.currentTab = 'orders'; render();"
+                                class="tab-button px-6 py-2 rounded-lg text-sm ${data.currentTab === 'orders' ? 'active' : 'text-gray-600 hover:bg-gray-100'}"
+                            >
+                                Orders
+                            </button>
+                            <button 
+                                onclick="data.currentTab = 'metrics'; render();"
+                                class="tab-button px-6 py-2 rounded-lg text-sm ${data.currentTab === 'metrics' ? 'active' : 'text-gray-600 hover:bg-gray-100'}"
+                            >
+                                Metrics
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Main Content -->
+                    <div class="flex-1 overflow-auto">
+                        ${data.currentTab === 'orders' ? renderOrdersTab() : renderMetricsTab()}
+                    </div>
+                </div>
+
+                ${data.selected ? renderDetailModal() : ''}
+                ${data.showNew ? renderNewOrderModal() : ''}
+            `;
+            
+            if (data.currentTab === 'metrics') {
+                renderCharts();
+            }
+        }
+
+        function renderOrdersTab() {
+            return `
+                <div class="p-6">
+                    <div class="flex gap-4 items-center mb-6">
+                        <div class="flex gap-2">
+                            <button onclick="setView('list')" class="px-4 py-2 rounded ${data.view === 'list' ? 'bg-blue-500 text-white' : 'bg-gray-200'} hover:opacity-80">
+                                List
+                            </button>
+                            <button onclick="setView('kanban')" class="px-4 py-2 rounded ${data.view === 'kanban' ? 'bg-blue-500 text-white' : 'bg-gray-200'} hover:opacity-80">
+                                Kanban
+                            </button>
+                            <button onclick="setView('map')" class="px-4 py-2 rounded ${data.view === 'map' ? 'bg-blue-500 text-white' : 'bg-gray-200'} hover:opacity-80">
+                                Map
+                            </button>
+                        </div>
+                        <button onclick="data.showNew = true; render(); initAutocomplete('new-address');" class="ml-auto px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                            + New Order
+                        </button>
+                    </div>
+                    ${data.view === 'list' ? renderList() : data.view === 'kanban' ? renderKanban() : renderMap()}
+                </div>
+            `;
+        }
+
+        function renderList() {
+            const sorted = [...data.orders].sort((a, b) => new Date(b.start || 0) - new Date(a.start || 0));
+            return `
+                <div class="bg-white rounded shadow overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Order #</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Address</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Client</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Start</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Due</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Fee</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${sorted.map(o => `
+                                <tr onclick="selectOrder('${o.num}')" class="border-t hover:bg-gray-50 cursor-pointer">
+                                    <td class="px-4 py-3 font-mono text-sm">${o.num}</td>
+                                    <td class="px-4 py-3 text-sm">${o.address}</td>
+                                    <td class="px-4 py-3 text-sm">${o.client}</td>
+                                    <td class="px-4 py-3">
+                                        <span class="px-2 py-1 rounded text-xs ${getStatusColor(o.status)}">${o.status}</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm">${formatDate(o.start)}</td>
+                                    <td class="px-4 py-3 text-sm">${formatDate(o.due)}</td>
+                                    <td class="px-4 py-3 text-sm font-medium">${o.fee ? formatCurrency(o.fee) : '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function renderKanban() {
+            const statuses = ['Ordered', 'Started', 'Completed', 'Cancelled'];
+            return `
+                <div class="grid grid-cols-4 gap-4">
+                    ${statuses.map(status => `
+                        <div class="bg-gray-100 rounded p-4">
+                            <h3 class="font-semibold mb-4">${status}</h3>
+                            <div class="space-y-3">
+                                ${data.orders.filter(o => o.status === status).map(o => `
+                                    <div onclick="selectOrder('${o.num}')" class="bg-white p-3 rounded shadow hover:shadow-md cursor-pointer">
+                                        <div class="font-mono text-sm text-gray-600">${o.num}</div>
+                                        <div class="font-medium mt-1">${o.address}</div>
+                                        <div class="text-sm text-gray-600 mt-1">${o.client}</div>
+                                        ${o.fee ? `<div class="text-sm font-medium text-green-600 mt-2">${formatCurrency(o.fee)}</div>` : ''}
+                                        <div class="text-xs text-gray-500 mt-2">Due: ${formatDate(o.due)}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderMap() {
+            return `
+                <div class="bg-white rounded shadow">
+                    <div class="p-4 border-b">
+                        <h3 class="font-semibold">Order Locations</h3>
+                    </div>
+                    <div class="p-4 space-y-2">
+                        ${data.orders.map(o => `
+                            <div class="flex justify-between items-center p-3 border rounded hover:bg-gray-50">
+                                <div>
+                                    <div class="font-mono text-sm text-gray-600">${o.num}</div>
+                                    <div class="font-medium">${o.address}</div>
+                                    <div class="text-sm text-gray-600">${o.client} - ${o.status}</div>
+                                    ${o.fee ? `<div class="text-sm font-medium text-green-600 mt-1">${formatCurrency(o.fee)}</div>` : ''}
+                                </div>
+                                <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.address)}" 
+                                   target="_blank" 
+                                   class="px-3 py-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
+                                    View Map
+                                </a>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDetailModal() {
+            const order = data.orders.find(o => o.num === data.selected);
+            if (!order) return '';
+            
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target === this) { data.selected = null; render(); }">
+                    <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-auto">
+                        <div class="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+                            <h2 class="text-xl font-bold">Order ${order.num}</h2>
+                            <div class="flex gap-2">
+                                <button onclick="editOrder('${order.num}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                    Edit
+                                </button>
+                                <button onclick="data.selected = null; render()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="p-6 space-y-6">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Status</label>
+                                    <div class="mt-1">
+                                        <span class="px-3 py-1 rounded ${getStatusColor(order.status)}">${order.status}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Client</label>
+                                    <div class="mt-1 text-gray-900">${order.client}</div>
+                                </div>
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Start Date</label>
+                                    <div class="mt-1 text-gray-900">${formatDate(order.start)}</div>
+                                </div>
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Due Date</label>
+                                    <div class="mt-1 text-gray-900">${formatDate(order.due)}</div>
+                                </div>
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Fee</label>
+                                    <div class="mt-1 text-gray-900 font-medium">${order.fee ? formatCurrency(order.fee) : 'Not set'}</div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="text-sm font-medium text-gray-600">Address</label>
+                                <div class="mt-1 text-gray-900">${order.address}</div>
+                                <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}" 
+                                   target="_blank"
+                                   class="text-blue-500 hover:underline text-sm mt-1 inline-block">
+                                    View on Google Maps →
+                                </a>
+                            </div>
+                            
+                            ${order.borrowers ? `
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Borrower(s)</label>
+                                    <div class="mt-1 text-gray-900">${order.borrowers}</div>
+                                </div>
+                            ` : ''}
+                            
+                            ${order.poc_email || order.poc_phone ? `
+                                <div class="grid grid-cols-2 gap-4">
+                                    ${order.poc_email ? `
+                                        <div>
+                                            <label class="text-sm font-medium text-gray-600">POC Email</label>
+                                            <div class="mt-1 text-gray-900">${order.poc_email}</div>
+                                        </div>
+                                    ` : ''}
+                                    ${order.poc_phone ? `
+                                        <div>
+                                            <label class="text-sm font-medium text-gray-600">POC Phone</label>
+                                            <div class="mt-1 text-gray-900">${order.poc_phone}</div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                            
+                            ${order.loan_number ? `
+                                <div>
+                                    <label class="text-sm font-medium text-gray-600">Loan Number</label>
+                                    <div class="mt-1 text-gray-900">${order.loan_number}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderNewOrderModal() {
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
+                        <div class="sticky top-0 bg-white border-b px-6 py-4">
+                            <h2 class="text-xl font-bold">New Order</h2>
+                        </div>
+                        
+                        <form onsubmit="createOrder(event)" class="p-6 space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Order Number</label>
+                                    <input type="text" id="new-num" value="${genNumber()}" readonly
+                                           class="w-full px-3 py-2 border rounded bg-gray-50 font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Status</label>
+                                    <select id="new-status" class="w-full px-3 py-2 border rounded">
+                                        <option>Ordered</option>
+                                        <option>Started</option>
+                                        <option>Completed</option>
+                                        <option>Cancelled</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Address *</label>
+                                <input type="text" id="new-address" required
+                                       class="w-full px-3 py-2 border rounded">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Client *</label>
+                                    <input type="text" id="new-client" required
+                                           class="w-full px-3 py-2 border rounded">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Fee</label>
+                                    <input type="text" id="new-fee" placeholder="$0.00"
+                                           oninput="this.value = formatCurrencyInput(this.value)"
+                                           class="w-full px-3 py-2 border rounded">
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Start Date & Time</label>
+                                    <input type="datetime-local" id="new-start"
+                                           class="w-full px-3 py-2 border rounded">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Due Date</label>
+                                    <input type="date" id="new-due"
+                                           class="w-full px-3 py-2 border rounded">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Borrower(s)</label>
+                                <input type="text" id="new-borrowers"
+                                       class="w-full px-3 py-2 border rounded">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">POC Email</label>
+                                    <input type="email" id="new-poc-email"
+                                           class="w-full px-3 py-2 border rounded">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">POC Phone</label>
+                                    <input type="tel" id="new-poc-phone"
+                                           class="w-full px-3 py-2 border rounded">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Loan Number</label>
+                                <input type="text" id="new-loan"
+                                       class="w-full px-3 py-2 border rounded">
+                            </div>
+                            
+                            <div class="flex gap-2 pt-4">
+                                <button type="submit" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                                    Create Order
+                                </button>
+                                <button type="button" onclick="data.showNew = false; render()" 
+                                        class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function formatCurrencyInput(value) {
+            // Remove non-numeric characters except decimal
+            let cleaned = value.replace(/[^0-9.]/g, '');
+            
+            // Ensure only one decimal point
+            const parts = cleaned.split('.');
+            if (parts.length > 2) {
+                cleaned = parts[0] + '.' + parts.slice(1).join('');
+            }
+            
+            // Limit to 2 decimal places
+            if (parts[1] && parts[1].length > 2) {
+                cleaned = parts[0] + '.' + parts[1].substring(0, 2);
+            }
+            
+            return cleaned ? '$' + cleaned : '';
+        }
+
+        function setView(view) {
+            data.view = view;
+            render();
+        }
+
+        function selectOrder(num) {
+            data.selected = num;
+            data.editing = false;
+            render();
+        }
+
+        function editOrder(num) {
+            data.editing = true;
+            render();
+            initAutocomplete('edit-address');
+        }
+
+        function createOrder(e) {
+            e.preventDefault();
+            const order = {
+                num: document.getElementById('new-num').value,
+                status: document.getElementById('new-status').value,
+                address: document.getElementById('new-address').value,
+                client: document.getElementById('new-client').value,
+                fee: document.getElementById('new-fee').value,
+                start: document.getElementById('new-start').value,
+                due: document.getElementById('new-due').value,
+                borrowers: document.getElementById('new-borrowers').value,
+                poc_email: document.getElementById('new-poc-email').value,
+                poc_phone: document.getElementById('new-poc-phone').value,
+                loan_number: document.getElementById('new-loan').value,
+                created: new Date().toISOString()
+            };
+            data.orders.push(order);
+            save();
+            data.showNew = false;
+            render();
+        }
+
+        function getStatusColor(status) {
+            const colors = {
+                'Ordered': 'bg-blue-100 text-blue-800',
+                'Started': 'bg-yellow-100 text-yellow-800',
+                'Completed': 'bg-green-100 text-green-800',
+                'Cancelled': 'bg-red-100 text-red-800'
+            };
+            return colors[status] || 'bg-gray-100 text-gray-800';
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>
