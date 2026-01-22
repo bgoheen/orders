@@ -1,0 +1,1833 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appraisal Orders</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHqA52DEjw6hBLLbshcNXACDYBGgXAPlE&libraries=places"></script>
+    <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+    <script>
+        function createGoogleCalendarLink(order) {
+            if (!order.startDate || !order.startTime) return '#';
+            
+            const startDateTime = order.startDate + 'T' + order.startTime + ':00';
+            const startDate = new Date(startDateTime);
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+            
+            const formatGoogleDate = (date) => {
+                return date.toISOString().replace(/-|:|\.\d+/g, '');
+            };
+            
+            const title = encodeURIComponent('Appraisal: ' + order.addr);
+            const details = encodeURIComponent([
+                'Order #: ' + (order.num || ''),
+                'Client: ' + (order.client || ''),
+                'Borrower: ' + (order.borrower || ''),
+                'POC: ' + (order.poc || ''),
+                'Phone: ' + (order.phone || ''),
+                'Email: ' + (order.email || ''),
+                'Loan #: ' + (order.loan || '')
+            ].filter(Boolean).join('\n'));
+            const location = encodeURIComponent(order.addr || '');
+            const dates = formatGoogleDate(startDate) + '/' + formatGoogleDate(endDate);
+            
+            // Add specific calendar ID to auto-select the calendar
+            const calendarId = encodeURIComponent('334479ad123a46497aae242cb56383049c89ce838424b5df00bbdfdb1cc25b74@group.calendar.google.com');
+            
+            return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}&add=${calendarId}`;
+        }
+
+        function formatPhone(value) {
+            const numbers = value.replace(/\D/g, '');
+            if (numbers.length <= 3) {
+                return numbers;
+            } else if (numbers.length <= 6) {
+                return `(${numbers.slice(0, 3)}) ${numbers.slice(3)}`;
+            } else {
+                return `(${numbers.slice(0, 3)}) ${numbers.slice(3, 6)}-${numbers.slice(6, 10)}`;
+            }
+        }
+
+        // Microsoft Authentication Configuration
+        const msalConfig = {
+            auth: {
+                clientId: '89d0320b-597e-4405-8ccd-7beeb8e25566',
+                authority: 'https://login.microsoftonline.com/consumers',
+                redirectUri: 'https://bgoheen.github.io/orders'
+            },
+            cache: {
+                cacheLocation: 'localStorage',
+                storeAuthStateInCookie: false
+            }
+        };
+
+        const msalInstance = new msal.PublicClientApplication(msalConfig);
+        let msalAccount = null;
+        let accessToken = null;
+
+        const loginRequest = {
+            scopes: ['Files.ReadWrite', 'User.Read', 'offline_access']
+        };
+
+        // Initialize MSAL
+        msalInstance.initialize().then(() => {
+            msalInstance.handleRedirectPromise().then(async response => {
+                if (response) {
+                    msalAccount = response.account;
+                    await getAccessToken();
+                    await loadOrdersFromOneDrive();
+                    
+                    if (window.opener && !window.opener.closed) {
+                        window.opener.postMessage('auth-complete', '*');
+                        window.close();
+                    }
+                } else {
+                    const accounts = msalInstance.getAllAccounts();
+                    if (accounts.length > 0) {
+                        msalAccount = accounts[0];
+                        await getAccessToken();
+                        await loadOrdersFromOneDrive();
+                    }
+                }
+                
+                render();
+            }).catch(err => {
+                console.error('MSAL error:', err);
+                render();
+            });
+        });
+
+        window.addEventListener('message', (event) => {
+            if (event.data === 'auth-complete') {
+                window.location.reload();
+            }
+        });
+
+        async function signIn() {
+            try {
+                await msalInstance.loginPopup(loginRequest);
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    msalAccount = accounts[0];
+                    await getAccessToken();
+                    await loadOrdersFromOneDrive();
+                    render();
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+            }
+        }
+
+        async function getAccessToken() {
+            const request = {
+                ...loginRequest,
+                account: msalAccount
+            };
+
+            try {
+                const response = await msalInstance.acquireTokenSilent(request);
+                accessToken = response.accessToken;
+                return accessToken;
+            } catch (error) {
+                if (error instanceof msal.InteractionRequiredAuthError) {
+                    const response = await msalInstance.acquireTokenPopup(request);
+                    accessToken = response.accessToken;
+                    return accessToken;
+                }
+                throw error;
+            }
+        }
+
+        async function uploadToOneDrive(file, orderId) {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            const fileName = `${orderId}_${file.name}`;
+            const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/${fileName}:/content`;
+
+            try {
+                const response = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': file.type
+                    },
+                    body: file
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    return {
+                        id: result.id,
+                        name: file.name,
+                        date: new Date().toLocaleDateString(),
+                        size: file.size,
+                        webUrl: result.webUrl,
+                        downloadUrl: result['@microsoft.graph.downloadUrl']
+                    };
+                } else {
+                    throw new Error('Upload failed: ' + response.statusText);
+                }
+            } catch (error) {
+                console.error('OneDrive upload error:', error);
+                throw error;
+            }
+        }
+
+        async function downloadFromOneDrive(fileId) {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            try {
+                const response = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                const fileInfo = await response.json();
+                if (fileInfo['@microsoft.graph.downloadUrl']) {
+                    window.open(fileInfo['@microsoft.graph.downloadUrl'], '_blank');
+                }
+            } catch (error) {
+                console.error('Download error:', error);
+            }
+        }
+
+        async function downloadFile(file) {
+            try {
+                if (!accessToken) {
+                    await getAccessToken();
+                }
+                
+                // Fetch fresh download URL
+                const response = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${file.id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const fileInfo = await response.json();
+                    if (fileInfo['@microsoft.graph.downloadUrl']) {
+                        // Create a temporary link and trigger download
+                        const a = document.createElement('a');
+                        a.href = fileInfo['@microsoft.graph.downloadUrl'];
+                        a.download = file.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    }
+                } else {
+                    throw new Error('Failed to get download URL');
+                }
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Failed to download file. Please try again.');
+            }
+        }
+        
+        async function viewFile(file) {
+            try {
+                if (!accessToken) {
+                    await getAccessToken();
+                }
+                
+                // Fetch file info to get webUrl for viewing in OneDrive
+                const response = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${file.id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const fileInfo = await response.json();
+                    if (fileInfo.webUrl) {
+                        // webUrl opens in OneDrive viewer - perfect for viewing without downloading
+                        window.open(fileInfo.webUrl, '_blank');
+                    } else {
+                        throw new Error('File URL not available');
+                    }
+                } else {
+                    throw new Error('Failed to get file URL');
+                }
+            } catch (error) {
+                console.error('View error:', error);
+                alert('Failed to view file. Please try again.');
+            }
+        }
+
+        async function deleteFromOneDrive(fileId) {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            try {
+                await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+            } catch (error) {
+                console.error('Delete error:', error);
+                throw error;
+            }
+        }
+
+        async function saveOrdersToOneDrive() {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            const ordersJson = JSON.stringify(data.orders, null, 2);
+            const blob = new Blob([ordersJson], { type: 'application/json' });
+
+            try {
+                const response = await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/orders.json:/content', {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: blob
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save to OneDrive: ' + response.statusText);
+                }
+            } catch (error) {
+                console.error('OneDrive save error:', error);
+                throw error;
+            }
+        }
+
+        async function loadOrdersFromOneDrive() {
+            if (!accessToken) {
+                await getAccessToken();
+            }
+
+            try {
+                const response = await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/orders.json:/content', {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const ordersData = await response.json();
+                    
+                    const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+                    const lastSync = localStorage.getItem('lastOneDriveSync');
+                    const localModified = localStorage.getItem('localModified');
+                    
+                    if (localModified && lastSync && parseInt(localModified) > parseInt(lastSync)) {
+                        console.log('Local changes detected - keeping local data and syncing to OneDrive...');
+                        data.orders = localOrders;
+                        await saveOrdersToOneDrive();
+                    } else {
+                        data.orders = ordersData;
+                        localStorage.setItem('orders', JSON.stringify(data.orders));
+                        localStorage.setItem('lastOneDriveSync', Date.now().toString());
+                        console.log('Orders loaded from OneDrive:', data.orders.length, 'orders');
+                    }
+                    render();
+                } else if (response.status === 404) {
+                    console.log('No orders file in OneDrive yet, using localStorage');
+                } else {
+                    throw new Error('Failed to load from OneDrive: ' + response.statusText);
+                }
+            } catch (error) {
+                console.error('OneDrive load error:', error);
+            }
+        }
+
+        const data = {
+            orders: JSON.parse(localStorage.getItem('orders') || '[]'),
+            clients: JSON.parse(localStorage.getItem('clients') || '["Members", "Temple View"]'),
+            view: 'list',
+            currentTab: 'orders',
+            metricsYear: new Date().getFullYear(),
+            metricsSortBy: 'client',
+            metricsSortDir: 'asc',
+            selected: null,
+            showNew: false,
+            editing: false,
+            collapsed: {COMPLETED: true, CANCELLED: true},
+            sortBy: 'dueDate',
+            sortDir: 'asc'
+        };
+
+        async function save() {
+            localStorage.setItem('orders', JSON.stringify(data.orders));
+            localStorage.setItem('localModified', Date.now().toString());
+            console.log('Orders saved to localStorage:', data.orders.length, 'orders');
+            
+            if (msalAccount && accessToken) {
+                try {
+                    await saveOrdersToOneDrive();
+                    localStorage.setItem('lastOneDriveSync', Date.now().toString());
+                } catch (error) {
+                    console.error('Failed to sync to OneDrive:', error);
+                }
+            }
+        }
+
+        function saveClients() {
+            localStorage.setItem('clients', JSON.stringify(data.clients));
+        }
+
+        function genNumber() {
+            const year = new Date().getFullYear();
+            const existing = data.orders
+                .map(o => o.num)
+                .filter(num => num && num.startsWith(year + '-'))
+                .map(num => parseInt(num.split('-')[1]))
+                .filter(n => !isNaN(n));
+            
+            const maxNum = existing.length > 0 ? Math.max(...existing) : 0;
+            const nextNum = String(maxNum + 1).padStart(3, '0');
+            return `${year}-${nextNum}`;
+        }
+
+        function formatDate(d) {
+            if (!d) return '-';
+            // Parse as local date to avoid timezone issues
+            const [year, month, day] = d.split('-');
+            const date = new Date(year, month - 1, day);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        function formatDateTime(d, t) {
+            if (!d) return '-';
+            // Parse as local date to avoid timezone issues
+            const [year, month, day] = d.split('-');
+            const date = new Date(year, month - 1, day);
+            const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            if (!t) return dateStr;
+            
+            const [hours, minutes] = t.split(':');
+            const hour = parseInt(hours);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour % 12 || 12;
+            return `${dateStr}, ${displayHour}:${minutes} ${ampm}`;
+        }
+
+        function formatFullDateTime(d, t) {
+            if (!d || !t) return '';
+            // Parse as local date to avoid timezone issues
+            const [year, month, day] = d.split('-');
+            const date = new Date(year, month - 1, day);
+            const dateStr = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            const [hours, minutes] = t.split(':');
+            const hour = parseInt(hours);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour % 12 || 12;
+            return `${dateStr} at ${displayHour}:${minutes.padStart(2, '0')} ${ampm}`;
+        }
+
+        function formatCurrency(value) {
+            if (!value) return '$0.00';
+            const num = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : value;
+            return '$' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        }
+
+        function parseCurrency(value) {
+            if (!value) return 0;
+            return parseFloat(value.replace(/[^0-9.]/g, '')) || 0;
+        }
+
+        function formatCurrencyInput(value) {
+            let cleaned = value.replace(/[^0-9.]/g, '');
+            const parts = cleaned.split('.');
+            if (parts.length > 2) {
+                cleaned = parts[0] + '.' + parts.slice(1).join('');
+            }
+            if (parts[1] && parts[1].length > 2) {
+                cleaned = parts[0] + '.' + parts[1].substring(0, 2);
+            }
+            return cleaned ? '$' + cleaned : '';
+        }
+
+        function getOrdersByYear(year) {
+            return data.orders.filter(o => {
+                const orderYear = new Date(o.startDate || o.created).getFullYear();
+                return orderYear === year;
+            });
+        }
+
+        function getClientMetrics(year) {
+            const yearOrders = getOrdersByYear(year);
+            const clientData = {};
+            
+            yearOrders.forEach(order => {
+                // Skip cancelled orders entirely - they don't count toward orders or revenue
+                if (order.stat === 'CANCELLED') return;
+                
+                const client = order.client || 'Unassigned';
+                if (!clientData[client]) {
+                    clientData[client] = {
+                        count: 0,
+                        revenue: 0
+                    };
+                }
+                clientData[client].count++;
+                if (order.fee) {
+                    clientData[client].revenue += parseCurrency(order.fee);
+                }
+            });
+            
+            return clientData;
+        }
+
+        function getAvailableYears() {
+            const years = new Set();
+            data.orders.forEach(o => {
+                const year = new Date(o.startDate || o.created).getFullYear();
+                years.add(year);
+            });
+            return Array.from(years).sort((a, b) => b - a);
+        }
+
+        function getChartColor(index) {
+            const colors = [
+                '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+                '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'
+            ];
+            return colors[index % colors.length];
+        }
+
+        function initAutocomplete(inputId) {
+            setTimeout(() => {
+                const input = document.getElementById(inputId);
+                if (input) {
+                    google.maps.event.clearInstanceListeners(input);
+                }
+                if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+                    const autocomplete = new google.maps.places.Autocomplete(input, {
+                        types: ['address'],
+                        componentRestrictions: { country: 'us' }
+                    });
+                }
+            }, 100);
+        }
+
+        function openMap(addr) {
+            window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr), '_blank');
+        }
+
+        function copyToClipboard(e, text, fieldName) {
+            e.preventDefault();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    const btn = e.target.closest('button');
+                    if (!btn) return;
+                    
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '✓';
+                    btn.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                    btn.classList.add('bg-green-500', 'text-white');
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.classList.remove('bg-green-500', 'text-white');
+                        btn.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                    }, 2000);
+                }).catch((err) => {
+                    console.error('Clipboard API failed:', err);
+                    fallbackCopy(e, text, fieldName);
+                });
+            } else {
+                fallbackCopy(e, text, fieldName);
+            }
+        }
+        
+        function fallbackCopy(e, text, fieldName) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                const btn = e.target.closest('button');
+                if (btn) {
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '✓';
+                    btn.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                    btn.classList.add('bg-green-500', 'text-white');
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.classList.remove('bg-green-500', 'text-white');
+                        btn.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                    }, 2000);
+                }
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+                alert('Failed to copy');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
+        function render() {
+            document.getElementById('app').innerHTML = `
+                <div class="h-screen flex flex-col bg-gray-50">
+                    <!-- Header -->
+                    <div class="bg-white border-b px-8 py-4">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center gap-8">
+                                <img src="metrowide-logo.png" alt="Metrowide Appraisals" class="h-10">
+                                
+                                <!-- Tab Navigation -->
+                                <div class="flex gap-1 bg-gray-100 rounded-lg p-1">
+                                    <button 
+                                        onclick="data.currentTab = 'orders'; render();"
+                                        class="px-5 py-1.5 rounded-md text-sm font-medium transition-all ${data.currentTab === 'orders' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}"
+                                    >
+                                        Orders
+                                    </button>
+                                    <button 
+                                        onclick="data.currentTab = 'metrics'; render();"
+                                        class="px-5 py-1.5 rounded-md text-sm font-medium transition-all ${data.currentTab === 'metrics' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}"
+                                    >
+                                        Metrics
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-4 items-center">
+                                ${msalAccount ? `
+                                    <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 bg-gray-50 rounded-lg">
+                                        <svg class="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                        OneDrive
+                                    </div>
+                                ` : `
+                                    <button onclick="signIn()" class="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                        Sign in to OneDrive
+                                    </button>
+                                `}
+                                ${data.currentTab === 'orders' ? `
+                                    <button onclick="data.showNew = true; render()" class="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors">
+                                        + New Order
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Main Content -->
+                    <div class="flex-1 overflow-hidden">
+                        ${data.currentTab === 'orders' ? renderList() : renderMetrics()}
+                    </div>
+                    
+                    ${data.selected ? renderDetail() : ''}
+                    ${data.showNew ? renderNewModal() : ''}
+                </div>
+            `;
+            
+            if (data.currentTab === 'metrics') {
+                renderCharts();
+            }
+            
+            if (data.showNew) {
+                initAutocomplete('new-addr');
+                // Add client dropdown handler for new order modal
+                setTimeout(() => {
+                    const newClientSelect = document.getElementById('new-client');
+                    if (newClientSelect) {
+                        newClientSelect.addEventListener('change', function(e) {
+                            if (e.target.value === '__ADD_NEW__') {
+                                const newClient = prompt('Enter new client name:');
+                                if (newClient && newClient.trim()) {
+                                    // Save form values before re-render
+                                    const formValues = {
+                                        addr: document.getElementById('new-addr')?.value || '',
+                                        startDate: document.getElementById('new-startDate')?.value || '',
+                                        startTime: document.getElementById('new-startTime')?.value || '',
+                                        dueDate: document.getElementById('new-dueDate')?.value || '',
+                                        borrower: document.getElementById('new-borrower')?.value || '',
+                                        poc: document.getElementById('new-poc')?.value || '',
+                                        phone: document.getElementById('new-phone')?.value || '',
+                                        email: document.getElementById('new-email')?.value || '',
+                                        loan: document.getElementById('new-loan')?.value || '',
+                                        fha: document.getElementById('new-fha')?.checked || false
+                                    };
+                                    
+                                    data.clients.push(newClient.trim());
+                                    saveClients();
+                                    render();
+                                    
+                                    // Restore form values after render
+                                    setTimeout(() => {
+                                        if (document.getElementById('new-addr')) {
+                                            document.getElementById('new-addr').value = formValues.addr;
+                                        }
+                                        if (document.getElementById('new-startDate')) {
+                                            document.getElementById('new-startDate').value = formValues.startDate;
+                                        }
+                                        if (document.getElementById('new-startTime')) {
+                                            document.getElementById('new-startTime').value = formValues.startTime;
+                                        }
+                                        if (document.getElementById('new-dueDate')) {
+                                            document.getElementById('new-dueDate').value = formValues.dueDate;
+                                        }
+                                        if (document.getElementById('new-borrower')) {
+                                            document.getElementById('new-borrower').value = formValues.borrower;
+                                        }
+                                        if (document.getElementById('new-poc')) {
+                                            document.getElementById('new-poc').value = formValues.poc;
+                                        }
+                                        if (document.getElementById('new-phone')) {
+                                            document.getElementById('new-phone').value = formValues.phone;
+                                        }
+                                        if (document.getElementById('new-email')) {
+                                            document.getElementById('new-email').value = formValues.email;
+                                        }
+                                        if (document.getElementById('new-loan')) {
+                                            document.getElementById('new-loan').value = formValues.loan;
+                                        }
+                                        if (document.getElementById('new-fha')) {
+                                            document.getElementById('new-fha').checked = formValues.fha;
+                                        }
+                                        
+                                        // Set the newly added client as selected
+                                        const select = document.getElementById('new-client');
+                                        if (select) {
+                                            select.value = newClient.trim();
+                                        }
+                                    }, 100);
+                                } else {
+                                    e.target.value = '';
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Add file upload handler
+                    const fileInput = document.getElementById('new-file-upload');
+                    if (fileInput) {
+                        fileInput.addEventListener('change', function(e) {
+                            const files = Array.from(e.target.files);
+                            const listEl = document.getElementById('new-files-list');
+                            if (listEl) {
+                                listEl.innerHTML = files.map(f => `
+                                    <div class="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        <span class="text-sm text-gray-700">${f.name}</span>
+                                    </div>
+                                `).join('');
+                            }
+                        });
+                    }
+                }, 100);
+            }
+        }
+
+        function renderList() {
+            const sortOrders = (orders) => {
+                return [...orders].sort((a, b) => {
+                    const field = data.sortBy;
+                    const aVal = field === 'startDate' ? (a.startDate || '') : (a.dueDate || '');
+                    const bVal = field === 'startDate' ? (b.startDate || '') : (b.dueDate || '');
+                    
+                    if (!aVal) return 1;
+                    if (!bVal) return -1;
+                    
+                    const comparison = new Date(aVal) - new Date(bVal);
+                    return data.sortDir === 'asc' ? comparison : -comparison;
+                });
+            };
+            
+            const groups = {
+                ORDERED: sortOrders(data.orders.filter(o => o.stat === 'ORDERED')),
+                COMPLETED: sortOrders(data.orders.filter(o => o.stat === 'COMPLETED')),
+                CANCELLED: sortOrders(data.orders.filter(o => o.stat === 'CANCELLED'))
+            };
+
+            const statusConfig = {
+                ORDERED: { color: 'bg-orange-500', textColor: 'text-orange-700', bgLight: 'bg-[#FFF0DF]' },
+                COMPLETED: { color: 'bg-green-500', textColor: 'text-green-700', bgLight: 'bg-[#EDF9EE]' },
+                CANCELLED: { color: 'bg-gray-400', textColor: 'text-gray-700', bgLight: 'bg-[#EDEDEE]' }
+            };
+
+            return `<div class="h-full overflow-y-auto px-8 py-6">
+                <div class="max-w-6xl mx-auto">
+                ${Object.entries(groups).map(([stat, orders]) => {
+                    const config = statusConfig[stat];
+                    return `
+                    <div class="mb-8">
+                        <button onclick="toggleCollapse('${stat}')" class="flex items-center gap-3 mb-4 group">
+                            <span class="text-gray-400 group-hover:text-gray-600 transition-colors">${data.collapsed[stat] ? '▶' : '▼'}</span>
+                            <div class="flex items-center gap-2 px-3 py-1.5 ${config.bgLight} rounded-full">
+                                <span class="w-2 h-2 ${config.color} rounded-full"></span>
+                                <span class="text-sm font-medium ${config.textColor} uppercase tracking-wide">${stat}</span>
+                            </div>
+                            <span class="text-sm text-gray-500">${orders.length} order${orders.length !== 1 ? 's' : ''}</span>
+                        </button>
+                        
+                        ${!data.collapsed[stat] && orders.length > 0 ? `
+                            <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                <table class="w-full">
+                                    <thead class="bg-gray-50 border-b border-gray-200">
+                                        <tr class="text-left">
+                                            <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[35%]">Address</th>
+                                            <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 w-[18%]" onclick="sortBy('startDate')">
+                                                Start ${data.sortBy === 'startDate' ? (data.sortDir === 'asc' ? '↑' : '↓') : ''}
+                                            </th>
+                                            <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 w-[13%]" onclick="sortBy('dueDate')">
+                                                Due ${data.sortBy === 'dueDate' ? (data.sortDir === 'asc' ? '↑' : '↓') : ''}
+                                            </th>
+                                            <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">Client</th>
+                                            <th class="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider w-[19%]">Order</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">
+                                        ${orders.map(o => `
+                                            <tr class="cursor-pointer transition-colors ${
+                                                data.selected?.id === o.id ? 'bg-blue-50' : 
+                                                o.fha ? 'bg-yellow-50' : ''
+                                            }" 
+                                            style="transition: background-color 0.15s ease;"
+                                            onmouseover="this.style.backgroundColor='#F7F9FF'" 
+                                            onmouseout="this.style.backgroundColor='${data.selected?.id === o.id ? '#eff6ff' : o.fha ? '#fefce8' : 'transparent'}'"
+                                            onclick="selectOrder(${o.id})">
+                                                <td class="px-6 py-4 w-[35%]">
+                                                    <div class="text-sm font-medium text-gray-900">${o.addr}</div>
+                                                </td>
+                                                <td class="px-6 py-4 text-sm text-gray-600 w-[18%]">${formatDateTime(o.startDate, o.startTime)}</td>
+                                                <td class="px-6 py-4 text-sm text-gray-600 w-[13%]">${formatDate(o.dueDate)}</td>
+                                                <td class="px-6 py-4 text-sm text-gray-600 w-[15%]">${o.client || '-'}</td>
+                                                <td class="px-6 py-4 w-[19%]">
+                                                    <div class="flex items-center gap-3 justify-between">
+                                                        <span class="text-sm text-gray-600">${o.num}</span>
+                                                        <button onclick="event.stopPropagation(); openMap('${o.addr.replace(/'/g, "\\'")}')" 
+                                                           class="opacity-50 hover:opacity-100 transition-opacity flex-shrink-0"
+                                                           title="Open in Google Maps">
+                                                            <img src="map-pin.png" alt="Map" class="w-5 h-5 object-contain">
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                }).join('')}
+                </div>
+            </div>`;
+        }
+
+        function toggleCollapse(s) { data.collapsed[s] = !data.collapsed[s]; render(); }
+        
+        function sortBy(field) {
+            if (data.sortBy === field) {
+                data.sortDir = data.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                data.sortBy = field;
+                data.sortDir = 'asc';
+            }
+            render();
+        }
+
+        function sortMetricsBy(field) {
+            if (data.metricsSortBy === field) {
+                data.metricsSortDir = data.metricsSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                data.metricsSortBy = field;
+                data.metricsSortDir = 'asc';
+            }
+            render();
+        }
+
+        function selectOrder(id) {
+            data.selected = data.orders.find(o => o.id === id);
+            data.editing = false;
+            render();
+        }
+
+        function updateField(field, value) {
+            if (data.selected) {
+                data.selected[field] = value;
+                const idx = data.orders.findIndex(o => o.id === data.selected.id);
+                if (idx !== -1) {
+                    data.orders[idx] = data.selected;
+                }
+                save();
+                render();
+            }
+        }
+
+        function saveEdit() {
+            const idx = data.orders.findIndex(o => o.id === data.selected.id);
+            if (idx !== -1) {
+                data.orders[idx] = data.selected;
+            }
+            save();
+            data.selected = null;  // Close the popup
+            data.editing = false;
+            render();
+        }
+
+        function renderMetrics() {
+            const years = getAvailableYears();
+            const clientMetrics = getClientMetrics(data.metricsYear);
+            const clients = Object.keys(clientMetrics).sort();
+            
+            const totalOrders = Object.values(clientMetrics).reduce((sum, c) => sum + c.count, 0);
+            const totalRevenue = Object.values(clientMetrics).reduce((sum, c) => sum + c.revenue, 0);
+            
+            return `
+                <div class="h-full overflow-y-auto px-8 py-6">
+                    <div class="max-w-6xl mx-auto">
+                        <!-- Year Selector -->
+                        <div class="flex justify-end mb-6">
+                            <div class="flex gap-3 items-center">
+                                <label class="text-sm font-medium text-gray-700">Year:</label>
+                                <select 
+                                    onchange="data.metricsYear = parseInt(this.value); render();"
+                                    class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                    ${years.length > 0 ? years.map(y => `
+                                        <option value="${y}" ${y === data.metricsYear ? 'selected' : ''}>${y}</option>
+                                    `).join('') : '<option value="' + new Date().getFullYear() + '">' + new Date().getFullYear() + '</option>'}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Summary Stats -->
+                        <div class="grid grid-cols-3 gap-4 mb-6">
+                            <div class="bg-blue-50 rounded-lg p-6">
+                                <div class="text-sm font-medium text-blue-600">Total Orders</div>
+                                <div class="text-3xl font-bold text-blue-900 mt-2">${totalOrders}</div>
+                            </div>
+                            <div class="bg-green-50 rounded-lg p-6">
+                                <div class="text-sm font-medium text-green-600">Total Revenue</div>
+                                <div class="text-3xl font-bold text-green-900 mt-2">${formatCurrency(totalRevenue)}</div>
+                            </div>
+                            <div class="bg-purple-50 rounded-lg p-6">
+                                <div class="text-sm font-medium text-purple-600">Avg Fee</div>
+                                <div class="text-3xl font-bold text-purple-900 mt-2">${totalOrders > 0 ? formatCurrency(totalRevenue / totalOrders) : '$0.00'}</div>
+                            </div>
+                        </div>
+
+                        ${clients.length === 0 ? `
+                            <div class="bg-white rounded-xl shadow-sm p-12 text-center">
+                                <div class="text-gray-400 text-6xl mb-4">📊</div>
+                                <h3 class="text-xl font-semibold text-gray-700 mb-2">No data for ${data.metricsYear}</h3>
+                                <p class="text-gray-500">Complete some orders to see your metrics here</p>
+                            </div>
+                        ` : `
+                            <!-- Charts Grid -->
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <!-- Order Distribution -->
+                                <div class="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Order Distribution</h3>
+                                    <div class="relative" style="height: 300px;">
+                                        <canvas id="orderChart"></canvas>
+                                    </div>
+                                </div>
+                                
+                                <!-- Revenue Distribution -->
+                                <div class="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Revenue Distribution</h3>
+                                    <div class="relative" style="height: 300px;">
+                                        <canvas id="revenueChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Detailed Table -->
+                            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                                <div class="px-6 py-4 border-b border-gray-200">
+                                    <h3 class="text-lg font-semibold text-gray-900">Client Breakdown</h3>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700" onclick="sortMetricsBy('client')">
+                                                    Client ${data.metricsSortBy === 'client' ? (data.metricsSortDir === 'asc' ? '↑' : '↓') : ''}
+                                                </th>
+                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700" onclick="sortMetricsBy('orders')">
+                                                    Orders ${data.metricsSortBy === 'orders' ? (data.metricsSortDir === 'asc' ? '↑' : '↓') : ''}
+                                                </th>
+                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700" onclick="sortMetricsBy('percentage')">
+                                                    % of Total ${data.metricsSortBy === 'percentage' ? (data.metricsSortDir === 'asc' ? '↑' : '↓') : ''}
+                                                </th>
+                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700" onclick="sortMetricsBy('revenue')">
+                                                    Revenue ${data.metricsSortBy === 'revenue' ? (data.metricsSortDir === 'asc' ? '↑' : '↓') : ''}
+                                                </th>
+                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700" onclick="sortMetricsBy('avgFee')">
+                                                    Avg Fee ${data.metricsSortBy === 'avgFee' ? (data.metricsSortDir === 'asc' ? '↑' : '↓') : ''}
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="bg-white divide-y divide-gray-200">
+                                            ${clients.sort((a, b) => {
+                                                const metricsA = clientMetrics[a];
+                                                const metricsB = clientMetrics[b];
+                                                let comparison = 0;
+                                                
+                                                switch(data.metricsSortBy) {
+                                                    case 'client':
+                                                        comparison = a.localeCompare(b);
+                                                        break;
+                                                    case 'orders':
+                                                        comparison = metricsA.count - metricsB.count;
+                                                        break;
+                                                    case 'percentage':
+                                                        const pctA = (metricsA.count / totalOrders) * 100;
+                                                        const pctB = (metricsB.count / totalOrders) * 100;
+                                                        comparison = pctA - pctB;
+                                                        break;
+                                                    case 'revenue':
+                                                        comparison = metricsA.revenue - metricsB.revenue;
+                                                        break;
+                                                    case 'avgFee':
+                                                        const avgA = metricsA.count > 0 ? metricsA.revenue / metricsA.count : 0;
+                                                        const avgB = metricsB.count > 0 ? metricsB.revenue / metricsB.count : 0;
+                                                        comparison = avgA - avgB;
+                                                        break;
+                                                    default:
+                                                        comparison = a.localeCompare(b);
+                                                }
+                                                
+                                                return data.metricsSortDir === 'asc' ? comparison : -comparison;
+                                            }).map((client, idx) => {
+                                                const metrics = clientMetrics[client];
+                                                const percentage = ((metrics.count / totalOrders) * 100).toFixed(1);
+                                                const avgFee = metrics.count > 0 ? metrics.revenue / metrics.count : 0;
+                                                
+                                                return `
+                                                    <tr class="hover:bg-gray-50 transition-colors">
+                                                        <td class="px-6 py-4 whitespace-nowrap">
+                                                            <div class="flex items-center">
+                                                                <div class="w-3 h-3 rounded-full mr-3" style="background-color: ${getChartColor(clients.indexOf(client))}"></div>
+                                                                <div class="text-sm font-medium text-gray-900">${client}</div>
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">${metrics.count}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">${percentage}%</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">${formatCurrency(metrics.revenue)}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">${formatCurrency(avgFee)}</td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                        <tfoot class="bg-gray-50 font-semibold">
+                                            <tr>
+                                                <td class="px-6 py-4 text-sm text-gray-900">Total</td>
+                                                <td class="px-6 py-4 text-right text-sm text-gray-900">${totalOrders}</td>
+                                                <td class="px-6 py-4 text-right text-sm text-gray-900">100%</td>
+                                                <td class="px-6 py-4 text-right text-sm text-gray-900">${formatCurrency(totalRevenue)}</td>
+                                                <td class="px-6 py-4 text-right text-sm text-gray-900">${formatCurrency(totalRevenue / totalOrders)}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCharts() {
+            if (data.currentTab !== 'metrics') return;
+            
+            setTimeout(() => {
+                const clientMetrics = getClientMetrics(data.metricsYear);
+                const clients = Object.keys(clientMetrics).sort();
+                
+                if (clients.length === 0) return;
+                
+                const orderCounts = clients.map(c => clientMetrics[c].count);
+                const revenues = clients.map(c => clientMetrics[c].revenue);
+                const colors = clients.map((_, i) => getChartColor(i));
+                
+                const totalOrders = orderCounts.reduce((a, b) => a + b, 0);
+                const totalRevenue = revenues.reduce((a, b) => a + b, 0);
+                
+                // Order Distribution Chart
+                const orderCtx = document.getElementById('orderChart');
+                if (orderCtx) {
+                    new Chart(orderCtx, {
+                        type: 'pie',
+                        data: {
+                            labels: clients,
+                            datasets: [{
+                                data: orderCounts,
+                                backgroundColor: colors,
+                                borderWidth: 2,
+                                borderColor: '#fff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const percentage = ((context.parsed / totalOrders) * 100).toFixed(1);
+                                            return `${context.label}: ${context.parsed} orders (${percentage}%)`;
+                                        }
+                                    }
+                                },
+                                datalabels: {
+                                    color: '#fff',
+                                    font: {
+                                        weight: 'bold',
+                                        size: 11
+                                    },
+                                    formatter: function(value, context) {
+                                        const percentage = ((value / totalOrders) * 100).toFixed(1);
+                                        if (percentage < 5) return ''; // Hide labels for small slices
+                                        return context.chart.data.labels[context.dataIndex] + '\n' + percentage + '%';
+                                    }
+                                }
+                            }
+                        },
+                        plugins: [{
+                            id: 'textLabels',
+                            afterDatasetsDraw: function(chart) {
+                                const ctx = chart.ctx;
+                                chart.data.datasets.forEach((dataset, datasetIndex) => {
+                                    const meta = chart.getDatasetMeta(datasetIndex);
+                                    meta.data.forEach((arc, index) => {
+                                        const data = dataset.data[index];
+                                        const total = dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((data / total) * 100).toFixed(1);
+                                        
+                                        // Only show label if slice is large enough
+                                        if (percentage < 5) return;
+                                        
+                                        const { x, y } = arc.tooltipPosition();
+                                        const label = chart.data.labels[index];
+                                        
+                                        ctx.save();
+                                        ctx.font = 'bold 11px sans-serif';
+                                        ctx.fillStyle = '#fff';
+                                        ctx.textAlign = 'center';
+                                        ctx.textBaseline = 'middle';
+                                        ctx.fillText(label, x, y - 6);
+                                        ctx.fillText(percentage + '%', x, y + 6);
+                                        ctx.restore();
+                                    });
+                                });
+                            }
+                        }]
+                    });
+                }
+                
+                // Revenue Distribution Chart
+                const revenueCtx = document.getElementById('revenueChart');
+                if (revenueCtx) {
+                    new Chart(revenueCtx, {
+                        type: 'pie',
+                        data: {
+                            labels: clients,
+                            datasets: [{
+                                data: revenues,
+                                backgroundColor: colors,
+                                borderWidth: 2,
+                                borderColor: '#fff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const percentage = ((context.parsed / totalRevenue) * 100).toFixed(1);
+                                            return `${context.label}: ${formatCurrency(context.parsed)} (${percentage}%)`;
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        plugins: [{
+                            id: 'textLabels',
+                            afterDatasetsDraw: function(chart) {
+                                const ctx = chart.ctx;
+                                chart.data.datasets.forEach((dataset, datasetIndex) => {
+                                    const meta = chart.getDatasetMeta(datasetIndex);
+                                    meta.data.forEach((arc, index) => {
+                                        const data = dataset.data[index];
+                                        const total = dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((data / total) * 100).toFixed(1);
+                                        
+                                        // Only show label if slice is large enough
+                                        if (percentage < 5) return;
+                                        
+                                        const { x, y } = arc.tooltipPosition();
+                                        const label = chart.data.labels[index];
+                                        
+                                        ctx.save();
+                                        ctx.font = 'bold 11px sans-serif';
+                                        ctx.fillStyle = '#fff';
+                                        ctx.textAlign = 'center';
+                                        ctx.textBaseline = 'middle';
+                                        ctx.fillText(label, x, y - 6);
+                                        ctx.fillText(percentage + '%', x, y + 6);
+                                        ctx.restore();
+                                    });
+                                });
+                            }
+                        }]
+                    });
+                }
+            }, 100);
+        }
+
+        function renderDetail() {
+            const o = data.selected;
+            
+            const statusConfig = {
+                ORDERED: { bg: 'bg-[#FFA00A]', text: 'text-white', bgLight: 'bg-[#FFF0DF]', textLight: 'text-[#FFA00A]' },
+                COMPLETED: { bg: 'bg-[#22C55E]', text: 'text-white', bgLight: 'bg-[#EDF9EE]', textLight: 'text-[#22C55E]' },
+                CANCELLED: { bg: 'bg-[#9CA3AF]', text: 'text-white', bgLight: 'bg-[#EDEDEE]', textLight: 'text-[#9CA3AF]' }
+            };
+            
+            return `
+                <!-- Blurred Overlay -->
+                <div class="fixed inset-0 bg-gray-900 bg-opacity-40 backdrop-blur-sm z-40" onclick="data.selected = null; render();"></div>
+                
+                <!-- Centered Detail Popup -->
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4" onclick="if(event.target === event.currentTarget) { data.selected = null; render(); }">
+                    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation();">
+                        <!-- Header -->
+                        <div class="px-8 py-6 border-b border-gray-200">
+                            <h2 class="text-xl font-semibold text-gray-900">${o.addr}</h2>
+                        </div>
+                        
+                        <!-- Scrollable Content -->
+                        <div class="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+                            <!-- Status Buttons - Full Width -->
+                            <div class="grid grid-cols-3 gap-3">
+                                ${['ORDERED', 'COMPLETED', 'CANCELLED'].map(status => {
+                                    const config = statusConfig[status];
+                                    const isActive = o.stat === status;
+                                    return `
+                                        <button onclick="updateField('stat', '${status}')" 
+                                            class="px-8 py-3 rounded-lg font-medium transition-all ${
+                                                isActive 
+                                                    ? `${config.bg} ${config.text} shadow-md` 
+                                                    : `${config.bgLight} ${config.textLight} hover:shadow-sm`
+                                            }">
+                                            ${status === 'ORDERED' ? 'Ordered' : status === 'COMPLETED' ? 'Completed' : 'Cancelled'}
+                                        </button>
+                                    `;
+                                }).join('')}
+                            </div>
+                        
+                        <!-- Calendar Button -->
+                        ${o.startDate && o.startTime ? `
+                            <div class="pt-4 border-t border-gray-200">
+                                <a href="${createGoogleCalendarLink(o)}" 
+                                   target="_blank"
+                                   class="flex items-center justify-center gap-2 w-full px-5 py-3 bg-gray-50 text-[#006EE4] rounded-lg hover:bg-gray-100 transition-colors font-medium">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    Add to Google Calendar
+                                </a>
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Schedule Section -->
+                        <div class="pt-6">
+                            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Schedule</h3>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Start Date</label>
+                                    <input type="date" value="${o.startDate || ''}" 
+                                        onchange="updateField('startDate', this.value)"
+                                        onfocus="this.showPicker()"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Start Time</label>
+                                    <input type="time" value="${o.startTime || ''}" 
+                                        onchange="updateField('startTime', this.value)"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <label class="text-xs text-gray-600 block mb-1.5">Due Date</label>
+                                <input type="date" value="${o.dueDate || ''}" 
+                                    onchange="updateField('dueDate', this.value)"
+                                    onfocus="this.showPicker()"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                            </div>
+                        </div>
+                        
+                        <!-- Client & Order Info -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Client</label>
+                                <select onchange="updateField('client', this.value)" 
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                    <option value="">Select client...</option>
+                                    ${data.clients.map(c => `<option value="${c}" ${o.client === c ? 'selected' : ''}>${c}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Order Number</label>
+                                <div class="relative">
+                                    <input type="text" value="${o.num || ''}" 
+                                        onchange="updateField('num', this.value)"
+                                        class="w-full px-4 py-3 pr-20 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                    ${o.num ? `
+                                        <button onclick="copyToClipboard(event, '${o.num}', 'Order #')" 
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+                                            Copy
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Fee -->
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1.5">Fee</label>
+                            <input type="text" value="${o.fee || ''}" 
+                                oninput="this.value = formatCurrencyInput(this.value)"
+                                onchange="updateField('fee', this.value)"
+                                placeholder="$0.00"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                        </div>
+                        
+                        <!-- Point of Contact Section -->
+                        <div class="pt-6">
+                            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Point of Contact</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Name</label>
+                                    <div class="relative">
+                                        <input type="text" value="${o.poc || ''}" 
+                                            onchange="updateField('poc', this.value)"
+                                            placeholder="Point of contact"
+                                            class="w-full px-4 py-3 ${o.poc ? 'pr-20' : ''} border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                        ${o.poc ? `
+                                            <button onclick="copyToClipboard(event, \`${o.poc}\`, 'POC Name')" 
+                                                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+                                                Copy
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Phone</label>
+                                    <div class="relative">
+                                        <input type="tel" value="${o.phone || ''}" 
+                                            onchange="updateField('phone', this.value)"
+                                            oninput="this.value = formatPhone(this.value)"
+                                            placeholder="(612) 555-5555"
+                                            class="w-full px-4 py-3 pr-20 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                        ${o.phone ? `
+                                            <button onclick="copyToClipboard(event, '${o.phone}', 'Phone')" 
+                                                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+                                                Copy
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Email</label>
+                                    <div class="relative">
+                                        <input type="email" value="${o.email || ''}" 
+                                            onchange="updateField('email', this.value)"
+                                            placeholder="email@example.com"
+                                            class="w-full px-4 py-3 ${o.email ? 'pr-20' : ''} border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                        ${o.email ? `
+                                            <button onclick="copyToClipboard(event, \`${o.email}\`, 'Email')" 
+                                                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+                                                Copy
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Borrower -->
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1.5">Borrower(s)</label>
+                            <div class="relative">
+                                <input type="text" value="${o.borrower || ''}" 
+                                    onchange="updateField('borrower', this.value)"
+                                    placeholder="Enter borrower name(s)"
+                                    class="w-full px-4 py-3 ${o.borrower ? 'pr-20' : ''} border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                ${o.borrower ? `
+                                    <button onclick="copyToClipboard(event, \`${o.borrower}\`, 'Borrower')" 
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+                                        Copy
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                        
+                        <!-- Loan Number & FHA -->
+                        <div class="flex gap-3 items-end">
+                            <div class="flex-1">
+                                <label class="text-xs text-gray-600 block mb-1.5">Loan Number</label>
+                                <div class="relative">
+                                    <input type="text" value="${o.loan || ''}" 
+                                        onchange="updateField('loan', this.value)"
+                                        placeholder="Enter loan number"
+                                        class="w-full px-4 py-3 ${o.loan ? 'pr-20' : ''} border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                    ${o.loan ? `
+                                        <button onclick="copyToClipboard(event, \`${o.loan}\`, 'Loan Number')" 
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+                                            Copy
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <div class="pb-3">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" ${o.fha ? 'checked' : ''} 
+                                           onchange="updateField('fha', this.checked)"
+                                           class="w-4 h-4 text-blue-600 rounded">
+                                    <span class="text-sm text-gray-700 font-medium">FHA</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Description -->
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1.5">Description</label>
+                            <textarea onchange="updateField('desc', this.value)" 
+                                placeholder="Add notes or description"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-h-[100px]">${o.desc || ''}</textarea>
+                        </div>
+                        
+                        <!-- Attachments -->
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1.5">Attachments</label>
+                            <input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event, ${o.id})" class="hidden">
+                            <button onclick="document.getElementById('file-upload-${o.id}').click()" 
+                                class="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors text-sm text-gray-600 hover:text-gray-900 font-medium">
+                                + Upload Files
+                            </button>
+                            ${o.att && o.att.length > 0 ? `
+                                <div class="mt-3 space-y-2">
+                                    ${o.att.map(file => `
+                                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                            <div class="flex items-center gap-2 flex-1 min-w-0">
+                                                <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                                </svg>
+                                                <span class="text-sm text-gray-900 truncate">${file.name}</span>
+                                            </div>
+                                            <div class="flex gap-2 ml-2">
+                                                <button onclick="viewFile(${JSON.stringify(file).replace(/"/g, '&quot;')})" 
+                                                    class="text-xs px-2 py-1 text-gray-600 hover:bg-gray-200 rounded">
+                                                    View
+                                                </button>
+                                                <button onclick="downloadFile(${JSON.stringify(file).replace(/"/g, '&quot;')})" 
+                                                    class="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded">
+                                                    Download
+                                                </button>
+                                                <button onclick="deleteFile(${o.id}, '${file.id}')" 
+                                                    class="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded">
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div class="px-8 py-4 border-t border-gray-200 flex justify-between items-center">
+                        <button onclick="deleteOrder(${o.id})" 
+                            class="px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors font-medium">
+                            Delete
+                        </button>
+                        <div class="flex gap-3">
+                            <button onclick="data.selected = null; render()" 
+                                class="px-6 py-2 text-gray-700 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition-colors font-medium">
+                                Cancel
+                            </button>
+                            <button onclick="saveEdit()" 
+                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors">
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            `;
+        }
+
+        function renderNewModal() {
+            return `
+                <div class="fixed inset-0 bg-gray-900 bg-opacity-40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick="data.showNew = false; render();">
+                    <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onclick="event.stopPropagation();">
+                        <!-- Header -->
+                        <div class="px-8 py-6 border-b border-gray-200">
+                            <h2 class="text-2xl font-semibold text-gray-900">New Order</h2>
+                        </div>
+                        
+                        <!-- Form Content -->
+                        <div class="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+                            <div>
+                                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
+                                    Address <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" id="new-addr" 
+                                    placeholder="Start typing for suggestions"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Start Date</label>
+                                    <input type="date" id="new-startDate" onfocus="this.showPicker()"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">Start Time</label>
+                                    <input type="time" id="new-startTime"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Due Date</label>
+                                <input type="date" id="new-dueDate" onfocus="this.showPicker()"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                            </div>
+                            
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Client</label>
+                                <select id="new-client"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                    <option value="">Select client...</option>
+                                    ${data.clients.map(c => `<option value="${c}">${c}</option>`).join('')}
+                                    <option value="__ADD_NEW__">+ Add New Client</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Fee</label>
+                                <input type="text" id="new-fee" 
+                                    placeholder="$0.00"
+                                    oninput="this.value = formatCurrencyInput(this.value)"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                            </div>
+                            
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Borrower(s)</label>
+                                <input type="text" id="new-borrower" 
+                                    placeholder="Enter borrower name(s)"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                            </div>
+                            
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">POC Name</label>
+                                <input type="text" id="new-poc" 
+                                    placeholder="Point of contact"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">POC Phone</label>
+                                    <input type="tel" id="new-phone" 
+                                        placeholder="(612) 555-5555"
+                                        oninput="this.value = formatPhone(this.value)"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-600 block mb-1.5">POC Email</label>
+                                    <input type="email" id="new-email" 
+                                        placeholder="email@example.com"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-3 items-end">
+                                <div class="flex-1">
+                                    <label class="text-xs text-gray-600 block mb-1.5">Loan Number</label>
+                                    <input type="text" id="new-loan" 
+                                        placeholder="Enter loan number"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                                <div class="pb-3">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="new-fha" class="w-4 h-4 text-blue-600 rounded">
+                                        <span class="text-sm text-gray-700 font-medium">FHA</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <!-- Attachments -->
+                            <div>
+                                <label class="text-xs text-gray-600 block mb-1.5">Attachments (optional)</label>
+                                <input type="file" id="new-file-upload" multiple class="hidden">
+                                <button type="button" onclick="document.getElementById('new-file-upload').click()" 
+                                    class="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors text-sm text-gray-600 hover:text-gray-900 font-medium">
+                                    + Upload Files
+                                </button>
+                                <div id="new-files-list" class="mt-3 space-y-2"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Footer -->
+                        <div class="px-8 py-6 border-t border-gray-200 flex gap-3 justify-end">
+                            <button onclick="data.showNew = false; render()" 
+                                class="px-6 py-2.5 text-gray-700 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition-colors font-medium">
+                                Cancel
+                            </button>
+                            <button onclick="createOrder()" 
+                                class="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors">
+                                Create Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function createOrder() {
+            const addr = document.getElementById('new-addr').value;
+            if (!addr) { alert('Address required'); return; }
+            
+            const newOrder = {
+                id: Date.now(),
+                name: addr,
+                stat: 'ORDERED',
+                fha: document.getElementById('new-fha').checked,
+                startDate: document.getElementById('new-startDate').value,
+                startTime: document.getElementById('new-startTime').value,
+                dueDate: document.getElementById('new-dueDate').value,
+                addr,
+                client: document.getElementById('new-client').value,
+                fee: document.getElementById('new-fee').value,
+                borrower: document.getElementById('new-borrower').value,
+                poc: document.getElementById('new-poc').value,
+                phone: document.getElementById('new-phone').value,
+                email: document.getElementById('new-email').value,
+                loan: document.getElementById('new-loan').value,
+                num: genNumber(),
+                desc: '',
+                att: []
+            };
+            
+            // Handle file uploads
+            const fileInput = document.getElementById('new-file-upload');
+            if (fileInput && fileInput.files.length > 0 && msalAccount) {
+                const files = Array.from(fileInput.files);
+                const createButton = document.querySelector('button[onclick="createOrder()"]');
+                const originalText = createButton.innerHTML;
+                
+                // Create progress bar
+                const progressContainer = document.createElement('div');
+                progressContainer.id = 'new-upload-progress';
+                progressContainer.className = 'mt-3 w-full';
+                progressContainer.innerHTML = `
+                    <div class="flex justify-between text-xs text-gray-600 mb-1">
+                        <span id="new-upload-status">Uploading files...</span>
+                        <span id="new-upload-percent">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div id="new-upload-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                `;
+                const newFilesList = document.getElementById('new-files-list');
+                if (newFilesList) {
+                    newFilesList.after(progressContainer);
+                }
+                
+                createButton.disabled = true;
+                createButton.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    try {
+                        // Update progress
+                        const statusEl = document.getElementById('new-upload-status');
+                        const percentEl = document.getElementById('new-upload-percent');
+                        const progressBar = document.getElementById('new-upload-bar');
+                        
+                        if (statusEl) statusEl.textContent = `Uploading ${file.name} (${i + 1} of ${files.length})`;
+                        const percent = Math.round(((i) / files.length) * 100);
+                        if (percentEl) percentEl.textContent = `${percent}%`;
+                        if (progressBar) progressBar.style.width = `${percent}%`;
+                        
+                        const uploadedFile = await uploadToOneDrive(file, newOrder.id);
+                        newOrder.att.push(uploadedFile);
+                    } catch (error) {
+                        console.error('Failed to upload file:', error);
+                        alert(`Failed to upload ${file.name}`);
+                    }
+                }
+                
+                // Show 100% complete
+                const percentEl = document.getElementById('new-upload-percent');
+                const progressBar = document.getElementById('new-upload-bar');
+                if (percentEl) percentEl.textContent = '100%';
+                if (progressBar) progressBar.style.width = '100%';
+                
+                // Small delay to show 100% before closing modal
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            data.orders.push(newOrder);
+            save();
+            data.showNew = false;
+            render();
+        }
+
+        async function deleteOrder(id) {
+            if (confirm('Delete this order?')) {
+                const order = data.orders.find(o => o.id === id);
+                console.log('Deleting order:', order);
+                
+                data.orders = data.orders.filter(o => o.id !== id);
+                save();
+                data.selected = null;
+                render();
+            }
+        }
+
+        async function uploadFiles(e, orderId) {
+            if (!msalAccount) {
+                alert('Please sign in to OneDrive to upload files');
+                return;
+            }
+
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            const order = data.orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            if (!order.att) order.att = [];
+
+            // Create progress bar container
+            const uploadButton = e.target.previousElementSibling;
+            const originalText = uploadButton.innerHTML;
+            const progressContainer = document.createElement('div');
+            progressContainer.className = 'mt-3 w-full';
+            progressContainer.innerHTML = `
+                <div class="flex justify-between text-xs text-gray-600 mb-1">
+                    <span id="upload-status">Uploading files...</span>
+                    <span id="upload-percent">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div id="upload-progress" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            `;
+            uploadButton.parentElement.appendChild(progressContainer);
+            uploadButton.disabled = true;
+            uploadButton.classList.add('opacity-50', 'cursor-not-allowed');
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                try {
+                    // Update progress
+                    const statusEl = document.getElementById('upload-status');
+                    const percentEl = document.getElementById('upload-percent');
+                    const progressBar = document.getElementById('upload-progress');
+                    
+                    if (statusEl) statusEl.textContent = `Uploading ${file.name} (${i + 1} of ${files.length})`;
+                    const percent = Math.round(((i) / files.length) * 100);
+                    if (percentEl) percentEl.textContent = `${percent}%`;
+                    if (progressBar) progressBar.style.width = `${percent}%`;
+                    
+                    const uploadedFile = await uploadToOneDrive(file, orderId);
+                    order.att.push(uploadedFile);
+                } catch (error) {
+                    alert(`Failed to upload ${file.name}: ${error.message}`);
+                }
+            }
+            
+            // Show 100% complete
+            const percentEl = document.getElementById('upload-percent');
+            const progressBar = document.getElementById('upload-progress');
+            if (percentEl) percentEl.textContent = '100%';
+            if (progressBar) progressBar.style.width = '100%';
+            
+            // Remove progress bar after a moment
+            setTimeout(() => {
+                if (progressContainer.parentElement) {
+                    progressContainer.remove();
+                }
+                uploadButton.innerHTML = originalText;
+                uploadButton.disabled = false;
+                uploadButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                
+                save();
+                if (data.selected && data.selected.id === orderId) {
+                    data.selected = order;
+                }
+                render();
+            }, 500);
+        }
+
+        async function deleteFile(orderId, fileId) {
+            if (!confirm('Delete this file?')) return;
+
+            try {
+                await deleteFromOneDrive(fileId);
+                
+                const order = data.orders.find(o => o.id === orderId);
+                if (order && order.att) {
+                    order.att = order.att.filter(f => f.id !== fileId);
+                    save();
+                    if (data.selected && data.selected.id === orderId) {
+                        data.selected = order;
+                    }
+                    render();
+                }
+            } catch (error) {
+                alert('Failed to delete file: ' + error.message);
+            }
+        }
+
+        // Clean up old Google Calendar tokens if they exist
+        localStorage.removeItem('googleAccessToken');
+        localStorage.removeItem('googleTokenExpiry');
+
+        render();
+    </script>
+</body>
+</html>
