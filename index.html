@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Appraisal Orders</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Leaflet + Heat (Maps & Visualization) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+  <!-- Google Places ONLY (Address Autocomplete) -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
+
+  <!-- Charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #FAFBFC;
+    }
+    #map {
+      height: 420px;
+      width: 100%;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+
+<div id="app"></div>
+
+<script>
+/***********************************************************
+ * DATA
+ ***********************************************************/
+const data = {
+  orders: JSON.parse(localStorage.getItem('orders') || '[]'),
+  tab: 'Metrics',
+  viewMode: 'pins' // 'pins' | 'heatmap'
+};
+
+/***********************************************************
+ * MAP STATE (LEAFLET)
+ ***********************************************************/
+let map;
+let markerLayer;
+let heatLayer;
+
+/***********************************************************
+ * MAP INIT
+ ***********************************************************/
+function initMap() {
+  if (map) return;
+
+  map = L.map('map').setView([44.9537, -93.09], 10); // Twin Cities
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  markerLayer = L.layerGroup().addTo(map);
+
+  renderMap();
+}
+
+/***********************************************************
+ * MAP RENDER
+ ***********************************************************/
+function renderMap() {
+  if (!map) return;
+
+  markerLayer.clearLayers();
+  if (heatLayer) {
+    map.removeLayer(heatLayer);
+    heatLayer = null;
+  }
+
+  const completed = data.orders.filter(o => o.status === 'Completed' && o.lat && o.lng);
+  if (!completed.length) return;
+
+  const heatPoints = [];
+  const bounds = [];
+
+  completed.forEach(o => {
+    const lat = parseFloat(o.lat);
+    const lng = parseFloat(o.lng);
+
+    bounds.push([lat, lng]);
+
+    if (data.viewMode === 'pins') {
+      L.marker([lat, lng])
+        .bindPopup(`<strong>${o.addr || ''}</strong><br/>Fee: $${o.fee || ''}`)
+        .addTo(markerLayer);
+    }
+
+    heatPoints.push([lat, lng, 1]);
+  });
+
+  if (data.viewMode === 'heatmap') {
+    heatLayer = L.heatLayer(heatPoints, {
+      radius: 25,
+      blur: 18,
+      maxZoom: 17
+    }).addTo(map);
+  }
+
+  map.fitBounds(bounds, { padding: [30, 30] });
+}
+
+/***********************************************************
+ * GOOGLE PLACES AUTOCOMPLETE (FORMS)
+ ***********************************************************/
+function initAddressAutocomplete(inputId, onPlaceSelected) {
+  const input = document.getElementById(inputId);
+  if (!input || !window.google) return;
+
+  const autocomplete = new google.maps.places.Autocomplete(input, {
+    types: ['address'],
+    componentRestrictions: { country: 'us' }
+  });
+
+  autocomplete.addListener('place_changed', () => {
+    const place = autocomplete.getPlace();
+    if (!place.geometry) return;
+
+    onPlaceSelected({
+      address: place.formatted_address,
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng()
+    });
+  });
+}
+
+/***********************************************************
+ * UI RENDER
+ ***********************************************************/
+function render() {
+  document.getElementById('app').innerHTML = `
+    <div class="max-w-7xl mx-auto p-6 space-y-6">
+
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-semibold">Metrics</h1>
+        <div class="flex gap-2">
+          <button
+            onclick="setViewMode('pins')"
+            class="px-4 py-2 text-sm rounded-lg border ${data.viewMode === 'pins' ? 'bg-gray-200' : 'border-gray-300 hover:bg-gray-100'}"
+          >Pins</button>
+          <button
+            onclick="setViewMode('heatmap')"
+            class="px-4 py-2 text-sm rounded-lg border ${data.viewMode === 'heatmap' ? 'bg-gray-200' : 'border-gray-300 hover:bg-gray-100'}"
+          >Heatmap</button>
+        </div>
+      </div>
+
+      <div class="bg-white p-6 rounded-xl border border-gray-200">
+        <h2 class="text-lg font-semibold mb-2">Completed Appraisals Map</h2>
+        <div id="map"></div>
+      </div>
+
+    </div>
+  `;
+
+  setTimeout(initMap, 50);
+}
+
+/***********************************************************
+ * ACTIONS
+ ***********************************************************/
+function setViewMode(mode) {
+  data.viewMode = mode;
+  renderMap();
+  render();
+}
+
+/***********************************************************
+ * DEMO DATA (REMOVE IN PROD)
+ ***********************************************************/
+if (!data.orders.length) {
+  data.orders = [
+    { status: 'Completed', addr: 'St Paul, MN', lat: 44.9537, lng: -93.09, fee: 550 },
+    { status: 'Completed', addr: 'Minneapolis, MN', lat: 44.9778, lng: -93.265, fee: 600 },
+    { status: 'Completed', addr: 'Edina, MN', lat: 44.8897, lng: -93.3499, fee: 575 }
+  ];
+  localStorage.setItem('orders', JSON.stringify(data.orders));
+}
+
+render();
+</script>
+
+</body>
+</html>
