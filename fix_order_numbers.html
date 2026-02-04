@@ -1,0 +1,90 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <title>Fix Order Numbers</title>
+</head>
+<body>
+    <h2>Order Number Fix Tool</h2>
+    <div id="status"></div>
+    <button onclick="fixOrders()">Fix Order Numbers</button>
+    
+    <script>
+        function fixOrders() {
+            const status = document.getElementById('status');
+            
+            // Load from localStorage
+            const saved = localStorage.getItem('orders');
+            if (!saved) {
+                status.innerHTML = '<p style="color: red;">No orders found in localStorage</p>';
+                return;
+            }
+            
+            const parsed = JSON.parse(saved);
+            const orders = parsed.orders || [];
+            
+            status.innerHTML = '<p>Found ' + orders.length + ' orders</p>';
+            
+            // Find all order numbers and the highest
+            let highestNum = 0;
+            const numberMap = {};
+            
+            orders.forEach(o => {
+                if (o.num) {
+                    const parts = o.num.split('-');
+                    if (parts.length === 2) {
+                        const num = parseInt(parts[1]);
+                        if (num > highestNum) {
+                            highestNum = num;
+                        }
+                        
+                        // Track duplicates
+                        if (!numberMap[o.num]) {
+                            numberMap[o.num] = [];
+                        }
+                        numberMap[o.num].push({
+                            addr: o.addr,
+                            id: o.id
+                        });
+                    }
+                }
+            });
+            
+            status.innerHTML += '<p>Highest order number: ' + highestNum + '</p>';
+            
+            // Find duplicates
+            const duplicates = Object.entries(numberMap).filter(([num, addrs]) => addrs.length > 1);
+            
+            if (duplicates.length > 0) {
+                status.innerHTML += '<h3>Duplicates found:</h3>';
+                duplicates.forEach(([num, addrs]) => {
+                    status.innerHTML += '<p><strong>' + num + '</strong>:</p><ul>';
+                    addrs.forEach(a => {
+                        status.innerHTML += '<li>' + a.addr + '</li>';
+                    });
+                    status.innerHTML += '</ul>';
+                });
+            }
+            
+            // Fix: Find the 3028 Edgerton order and change it to 2026-023
+            const edgertonOrder = orders.find(o => o.addr && o.addr.includes('3028 Edgerton'));
+            
+            if (edgertonOrder) {
+                status.innerHTML += '<p>Found 3028 Edgerton with number: ' + edgertonOrder.num + '</p>';
+                edgertonOrder.num = '2026-023';
+                status.innerHTML += '<p style="color: green;">Changed to: 2026-023</p>';
+                
+                // Set nextNum to 24
+                parsed.nextNum = 24;
+                status.innerHTML += '<p style="color: green;">Set nextNum to 24 (next order will be 2026-024)</p>';
+                
+                // Save back to localStorage
+                localStorage.setItem('orders', JSON.stringify(parsed));
+                status.innerHTML += '<p style="color: green;"><strong>✓ Fixed and saved!</strong></p>';
+                status.innerHTML += '<p>Please refresh your main page to see the changes.</p>';
+            } else {
+                status.innerHTML += '<p style="color: red;">Could not find 3028 Edgerton order</p>';
+            }
+        }
+    </script>
+</body>
+</html>
