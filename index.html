@@ -856,7 +856,7 @@
                     if (data.tab === 'Metrics') {
                         // For Metrics tab, use a fixed closer zoom instead of fitBounds
                         const center = bounds.getCenter();
-                        map.setView(center, 12);  // Fixed zoom level 12 (closer than default)
+                        map.setView(center, 9);  // Fixed zoom level 12 (closer than default)
                     } else {
                         // For Map tab, use normal fitBounds
                         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14, minZoom: 11 });
