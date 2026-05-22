@@ -318,6 +318,22 @@
             return `x-safari-https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}&src=334479ad123a46497aae242cb56383049c89ce838424b5df00bbdfdb1cc25b74%40group.calendar.google.com`;
         }
 
+        // Hand off an x-safari-https:// URL to macOS via a hidden iframe, so the
+        // host PWA browser (e.g. Helium/Chrome) does NOT spawn a visible window
+        // or dock icon. The OS protocol handler picks up the scheme and launches
+        // Safari directly.
+        function openCalendarInSafari(url, event) {
+            if (event) event.preventDefault();
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = url;
+            document.body.appendChild(iframe);
+            setTimeout(() => {
+                if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+            }, 1500);
+            return false;
+        }
+
         function formatPhone(value) {
             const numbers = value.replace(/\D/g, '');
             if (numbers.length <= 3) {
@@ -1896,7 +1912,7 @@
                                                 ${o.startDate ? `<span class="text-sm text-gray-700">${parseLocalDate(o.startDate).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}</span>` : ''}
                                                 ${o.startTime ? `<span class="text-sm text-gray-700">${formatTime12(o.startTime)}</span>` : ''}
                                                 ${(o.startDate && o.startTime) ? `
-                                                    <a href="${createGoogleCalendarLink(o)}" target="_blank" class="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                                                    <a href="${createGoogleCalendarLink(o)}" onclick="return openCalendarInSafari(this.href, event)" class="text-sm text-blue-600 hover:text-blue-700 font-medium">
                                                         Add to Calendar
                                                     </a>
                                                 ` : ''}
