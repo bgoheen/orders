@@ -313,7 +313,9 @@
             const dates = formatGoogleDate(startDate) + '/' + formatGoogleDate(endDate);
             
             // Use calendar.google.com with src parameter to specify target calendar
-            return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}&src=334479ad123a46497aae242cb56383049c89ce838424b5df00bbdfdb1cc25b74%40group.calendar.google.com`;
+            // x-safari-https:// scheme forces the link to open in Safari on macOS/iOS,
+            // regardless of which browser (or PWA) the user clicks from.
+            return `x-safari-https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}&src=334479ad123a46497aae242cb56383049c89ce838424b5df00bbdfdb1cc25b74%40group.calendar.google.com`;
         }
 
         function formatPhone(value) {
