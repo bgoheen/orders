@@ -66,6 +66,9 @@
 
     const SUPABASE_READY = () => SUPABASE_URL !== 'YOUR_SUPABASE_URL';
 
+    // Public cal.com booking page for the appraisal inspection event
+    const CALCOM_INSPECTION_URL = 'https://cal.com/metrowide/inspection';
+
     async function supabaseFetch(path, options = {}) {
         const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
             ...options,
@@ -183,6 +186,19 @@
         const location = encodeURIComponent(order.addr || '');
         const dates = fmt(startDate) + '/' + fmt(endDate);
         return `x-safari-https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}&src=334479ad123a46497aae242cb56383049c89ce838424b5df00bbdfdb1cc25b74%40group.calendar.google.com`;
+    }
+    function createCalcomInspectionLink(o) {
+        if (!CALCOM_INSPECTION_URL) return '#';
+        const addr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
+        const feeDisplay = o.fee ? (o.fee.toString().startsWith('$') ? o.fee : '$'+o.fee) : '';
+        const notes = ['Order #: ' + (o.num||''), 'Property: ' + addr, feeDisplay ? 'Fee: ' + feeDisplay : ''].filter(Boolean).join(' | ');
+        const params = new URLSearchParams();
+        if (o.poc) params.set('name', o.poc);
+        if (o.email) params.set('email', o.email);
+        params.set('notes', notes);
+        if (addr) params.set('location', JSON.stringify({ value: 'attendeeInPerson', optionValue: addr }));
+        const sep = CALCOM_INSPECTION_URL.includes('?') ? '&' : '?';
+        return CALCOM_INSPECTION_URL + sep + params.toString();
     }
     function openCalendarInSafari(url, event) {
         if (event) event.preventDefault();
@@ -852,24 +868,25 @@
 
     function renderViewMode(o) {
         const copyBtn = (text, label) => `<button onclick="navigator.clipboard.writeText('${text}');this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M5 13l4 4L19 7\\'></path></svg>';setTimeout(()=>this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z\\'></path></svg>',2000);" class="p-1.5 hover:bg-gray-100 rounded transition-colors text-gray-500 inline-flex items-center justify-center" style="min-width:28px;min-height:28px;"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button>`;
+        const fullAddr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
         return `<div class="space-y-3">
             <div class="flex items-center justify-between pb-2 border-b border-gray-200">
                 ${o.num?`<div class="flex items-center gap-2"><span class="text-sm text-gray-500">Order #</span><span class="text-sm font-semibold text-gray-900">${o.num}</span>${copyBtn(o.num,'order#')}</div>`:'<div></div>'}
                 ${o.fee?`<span class="text-sm font-semibold text-gray-900">${o.fee.toString().startsWith('$')?o.fee:'$'+o.fee}</span>`:''}
             </div>
-            <div><h3 class="text-sm font-semibold text-gray-900 mb-1">Property</h3><p class="text-sm text-gray-700">${o.addr.replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}</p></div>
+            <div><h3 class="text-sm font-semibold text-gray-900 mb-1">Property</h3><div class="flex items-center gap-1"><p class="text-sm text-gray-700">${fullAddr}</p>${copyBtn(fullAddr,'address')}</div></div>
             ${(o.client||o.borrower||o.poc||o.phone||o.email||o.loan)?`
             <div class="pt-2 border-t border-gray-200"><h3 class="text-sm font-semibold text-gray-900 mb-2">Contact Information</h3>
                 <div class="grid grid-cols-3 gap-x-4 gap-y-2">
                     ${o.client?`<div><span class="text-xs text-gray-500">Client</span><p class="text-sm text-gray-900 mt-0.5">${o.client}</p></div>`:''}
                     ${o.borrower?`<div><span class="text-xs text-gray-500">Borrower</span><div class="flex items-center gap-1 mt-0.5"><p class="text-sm text-gray-900">${o.borrower}</p>${copyBtn(o.borrower,'borrower')}</div></div>`:''}
-                    ${o.poc?`<div><span class="text-xs text-gray-500">POC</span><p class="text-sm text-gray-900 mt-0.5">${o.poc}</p></div>`:''}
-                    ${o.phone?`<div><span class="text-xs text-gray-500">Phone</span><p class="text-sm text-gray-900 mt-0.5">${o.phone}</p></div>`:''}
-                    ${o.email?`<div class="col-span-2"><span class="text-xs text-gray-500">Email</span><p class="text-sm text-gray-900 mt-0.5">${o.email}</p></div>`:''}
+                    ${o.poc?`<div><span class="text-xs text-gray-500">POC</span><div class="flex items-center gap-1 mt-0.5"><p class="text-sm text-gray-900">${o.poc}</p>${copyBtn(o.poc,'poc')}</div></div>`:''}
+                    ${o.phone?`<div><span class="text-xs text-gray-500">Phone</span><div class="flex items-center gap-1 mt-0.5"><p class="text-sm text-gray-900">${o.phone}</p>${copyBtn(o.phone,'phone')}</div></div>`:''}
+                    ${o.email?`<div class="col-span-2"><span class="text-xs text-gray-500">Email</span><div class="flex items-center gap-1 mt-0.5"><p class="text-sm text-gray-900">${o.email}</p>${copyBtn(o.email,'email')}</div></div>`:''}
                     ${o.loan?`<div><span class="text-xs text-gray-500">Loan #</span><div class="flex items-center gap-1 mt-0.5"><p class="text-sm text-gray-900">${o.loan}</p>${copyBtn(o.loan,'loan#')}</div></div>`:''}
                 </div>
             </div>`:''}
-            ${(o.startDate||o.startTime)?`<div class="pt-2 border-t border-gray-200"><h3 class="text-sm font-semibold text-gray-900 mb-1">Inspection</h3><div class="flex items-center gap-3">${o.startDate?`<span class="text-sm text-gray-700">${parseLocalDate(o.startDate).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'numeric'})}</span>`:''} ${o.startTime?`<span class="text-sm text-gray-700">${formatTime12(o.startTime)}</span>`:''} ${(o.startDate&&o.startTime)?`<a href="${createGoogleCalendarLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="text-sm text-blue-600 hover:text-blue-700 font-medium">Add to Calendar</a>`:''}</div></div>`:''}
+            ${(o.startDate||o.startTime)?`<div class="pt-2 border-t border-gray-200"><h3 class="text-sm font-semibold text-gray-900 mb-1">Inspection</h3><div class="flex items-center gap-3">${o.startDate?`<span class="text-sm text-gray-700">${parseLocalDate(o.startDate).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'numeric'})}</span>`:''} ${o.startTime?`<span class="text-sm text-gray-700">${formatTime12(o.startTime)}</span>`:''} ${(o.startDate&&o.startTime)?`<a href="${createGoogleCalendarLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="text-sm text-blue-600 hover:text-blue-700 font-medium">Add to Calendar</a>`:''} ${CALCOM_INSPECTION_URL?`<a href="${createCalcomInspectionLink(o)}" target="_blank" rel="noopener" class="text-sm text-blue-600 hover:text-blue-700 font-medium">Schedule on Cal.com</a>`:''}</div></div>`:''}
             ${o.desc?`<div class="pt-2 border-t border-gray-200"><h3 class="text-sm font-semibold text-gray-900 mb-1">Notes</h3><p class="text-sm text-gray-700 whitespace-pre-wrap">${o.desc}</p></div>`:''}
             ${o.att&&o.att.length>0?`<div class="pt-4 border-t border-gray-200"><h3 class="text-sm font-semibold text-gray-900 mb-3">Attachments (${o.att.length})</h3><div class="space-y-2">${o.att.map(f=>`<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"><div class="flex items-center gap-3 flex-1 min-w-0"><svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="text-sm text-gray-900 truncate">${f.name}</span></div><div class="flex items-center gap-2 ml-4"><button onclick="downloadFromOneDrive('${f.id}')" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button><button onclick="deleteFile('${o.id}','${f.id}')" class="p-1.5 hover:bg-red-100 rounded"><svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div></div>`).join('')}</div></div>`:''}
             ${msalAccount?`<div class="pt-4 border-t border-gray-200"><label class="block text-sm font-semibold text-gray-900 mb-3">Upload Files</label><div class="flex items-center gap-3"><button onclick="document.getElementById('file-upload-${o.id}').click()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">Choose Files</button><input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event,'${o.id}')" class="hidden"></div></div>`:''}
