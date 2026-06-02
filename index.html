@@ -200,6 +200,21 @@
         if (o.email) params.set('email', o.email);
         params.set('notes', notes);
         if (addr) params.set('location', JSON.stringify({ value: 'attendeeInPerson', optionValue: addr }));
+        // Preselect the day (and attempt the exact time slot) from the order's inspection date/time
+        if (o.startDate) {
+            params.set('month', o.startDate.slice(0,7));
+            params.set('date', o.startDate);
+            if (o.startTime) {
+                let offset = '+00:00';
+                try {
+                    const ref = new Date(`${o.startDate}T${o.startTime}:00Z`);
+                    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', timeZoneName: 'longOffset' }).formatToParts(ref);
+                    const tzn = parts.find(p => p.type === 'timeZoneName');
+                    if (tzn) { const v = tzn.value.replace('GMT','').replace('UTC',''); if (v) offset = v; }
+                } catch(e) {}
+                params.set('slot', `${o.startDate}T${o.startTime}:00${offset}`);
+            }
+        }
         const sep = CALCOM_INSPECTION_URL.includes('?') ? '&' : '?';
         return 'x-safari-' + CALCOM_INSPECTION_URL + sep + params.toString();
     }
