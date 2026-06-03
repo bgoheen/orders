@@ -655,7 +655,7 @@
 
     function renderNewConsultationModal() {
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){data.showNewCons=false;render();}">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){if(confirm('Discard this new consultation? Your entries will be lost.')){data.showNewCons=false;render();}}">
             <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
                     <h2 class="text-xl font-semibold text-gray-900">New Consultation</h2>
@@ -842,7 +842,7 @@
         const o = data.selected;
         if (!o) return '';
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){data.selected=null;render();}">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){if(!data.edit||confirm('Discard unsaved changes?')){data.selected=null;data.edit=false;render();}}">
             <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
                     <div class="flex items-center gap-3"><h2 class="text-xl font-semibold text-gray-900">Order Details</h2><span class="status-badge status-${o.status.toLowerCase()}">${o.status}</span></div>
@@ -947,7 +947,7 @@
     function renderNewOrderModal() {
         const clients = [...new Set(data.orders.map(o=>o.client).filter(Boolean))].sort();
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();}">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){if(confirm('Discard this new order? Your entries will be lost.')){data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();}}">
             <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
                     <div>
