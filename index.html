@@ -75,6 +75,8 @@
     // QuickBooks Online bridge (Cloudflare Worker)
     const QBO_WORKER_URL = 'https://qbo-bridge.bgoheen.workers.dev';
     const QBO_APP_SECRET = 'v$97!Kay6XVY*Ph';
+    // QBO web app base — used to open a created invoice (use app.sandbox.qbo.intuit.com while testing in sandbox)
+    const QBO_WEB_BASE = 'https://app.qbo.intuit.com';
 
     async function sendToQBO(orderId, btn) {
         const o = data.orders.find(x => x.id === orderId);
@@ -94,7 +96,10 @@
                 body: JSON.stringify({ customer, orderNumber: o.num || '', address: addr, fee })
             });
             const d = await res.json();
-            if (res.ok && d.ok) { alert(`✅ Invoice #${d.docNumber} created in QuickBooks for $${d.total}.`); }
+            if (res.ok && d.ok) {
+                alert(`✅ Invoice #${d.docNumber} created in QuickBooks for $${d.total}. Opening it in QuickBooks…`);
+                openCalendarInSafari('x-safari-' + QBO_WEB_BASE + '/app/invoice?txnId=' + d.invoiceId);
+            }
             else { alert('QuickBooks error: ' + (d.error || 'unknown error')); }
         } catch(e) {
             alert('Could not reach the QuickBooks bridge: ' + e.message);
