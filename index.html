@@ -430,6 +430,8 @@
     const initialAccounts = msalInstance.getAllAccounts();
     if (initialAccounts.length === 0) { load(); fixOrderNumberSequence(); if (data.orders.length > 0) render(); }
     else console.log('OneDrive account detected, loading from OneDrive');
+    // Load consultations on startup so the pending badge shows without opening the tab first
+    if (SUPABASE_READY()) fetchConsultations();
     // ============================================================
     // MAP FUNCTIONS
     // ============================================================
@@ -549,7 +551,7 @@
                                     ? `data.tab='Consultations'; if(!data.consLoaded) fetchConsultations(); else render();`
                                     : `data.tab='Orders'; render();`;
                             const badge = tab === 'Consultations' && pendingCons > 0
-                                ? `<span class="ml-1 inline-flex items-center justify-center w-4 h-4 text-xs font-bold rounded-full bg-indigo-600 text-white">${pendingCons}</span>` : '';
+                                ? `<span class="ml-1 inline-flex items-center justify-center text-xs font-bold rounded-full text-white" style="background-color:#FF3B30;min-width:18px;height:18px;padding:0 5px;line-height:1;">${pendingCons}</span>` : '';
                             return `<button onclick="${onclick}" class="px-4 py-2 rounded-lg font-medium transition-all text-sm ${data.tab===tab?'text-gray-900 font-semibold':'text-gray-600 hover:text-gray-900'}">
                                 <span class="flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[tab]}</svg>${tab}${badge}</span>
                             </button>`;
