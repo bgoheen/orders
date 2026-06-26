@@ -937,8 +937,20 @@
                 ${filtered.map(o => {
                     const isOverdue = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
                     const borderClass = isOverdue ? 'overdue-border' : `status-strip-${o.status.toLowerCase()}`;
+                    const makeDropdownHTML = (suffix) => `<div class="dropdown-container relative flex-shrink-0">
+                                <button onclick="toggleDropdown('${o.id}${suffix}',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" transform="rotate(90 12 12)"/></svg></button>
+                                <div id="dropdown-${o.id}${suffix}" class="dropdown-menu">
+                                    <div class="dropdown-item" onclick="data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=true;render();">Edit Order</div>
+                                    ${o.status!=='Completed'?`<div class="dropdown-item" onclick="updateStatus('${o.id}','Completed')">Mark Completed</div>`:''}
+                                    ${o.status!=='Cancelled'?`<div class="dropdown-item" onclick="updateStatus('${o.id}','Cancelled')">Mark Cancelled</div>`:''}
+                                    <div class="dropdown-item danger" onclick="confirmDelete('${o.id}')">Delete</div>
+                                </div>
+                            </div>`;
+                    const dropdownHTML = makeDropdownHTML('-d');
+                    const dropdownHTMLMobile = makeDropdownHTML('-m');
                     return `<div class="order-card bg-white rounded-lg px-4 py-2 border border-gray-200 ${borderClass} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=false;render();}">
-                        <div class="flex items-center gap-4 text-sm">
+                        <!-- Desktop row (md and up) -->
+                        <div class="hidden md:flex items-center gap-4 text-sm">
                             <div class="flex-1 min-w-0"><div class="font-semibold text-gray-900 truncate">${o.addr.replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}</div></div>
                             <div class="w-32 text-gray-700 truncate">${o.client||'—'}</div>
                             <div class="w-28 text-gray-700">${o.num||'—'}</div>
@@ -946,14 +958,23 @@
                             <div class="w-24 ${isOverdue?'overdue-text':'text-gray-700'} flex items-center gap-1">${o.dueDate?`<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}`:'—'}</div>
                             <div class="w-40 text-gray-700 flex items-center gap-1">${o.startDate?`<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${formatDate(o.startDate)}${o.startTime?', '+formatTime12(o.startTime):''}` : '—'}</div>
                             <div class="w-12 flex-shrink-0">${o.fha?`<span class="text-xs font-semibold px-2 py-1 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}</div>
-                            <div class="dropdown-container relative flex-shrink-0">
-                                <button onclick="toggleDropdown('${o.id}',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" transform="rotate(90 12 12)"/></svg></button>
-                                <div id="dropdown-${o.id}" class="dropdown-menu">
-                                    <div class="dropdown-item" onclick="data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=true;render();">Edit Order</div>
-                                    ${o.status!=='Completed'?`<div class="dropdown-item" onclick="updateStatus('${o.id}','Completed')">Mark Completed</div>`:''}
-                                    ${o.status!=='Cancelled'?`<div class="dropdown-item" onclick="updateStatus('${o.id}','Cancelled')">Mark Cancelled</div>`:''}
-                                    <div class="dropdown-item danger" onclick="confirmDelete('${o.id}')">Delete</div>
-                                </div>
+                            ${dropdownHTML}
+                        </div>
+                        <!-- Mobile card (below md) -->
+                        <div class="md:hidden py-1.5">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="font-semibold text-gray-900 leading-snug">${o.addr.replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}</div>
+                                ${dropdownHTMLMobile}
+                            </div>
+                            <div class="flex items-center gap-1.5 mt-0.5 text-xs text-gray-500">
+                                <span>${o.num||'—'}</span>
+                                ${o.client?`<span class="text-gray-300">·</span><span class="truncate">${o.client}</span>`:''}
+                                ${o.fha?`<span class="text-xs font-semibold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}
+                            </div>
+                            <div class="flex items-center gap-3 mt-2 text-sm text-gray-700">
+                                <span class="font-medium text-gray-900">${o.fee?(o.fee.toString().startsWith('$')?o.fee:'$'+o.fee):'—'}</span>
+                                ${o.dueDate?`<span class="inline-flex items-center gap-1 ${isOverdue?'overdue-text':''}"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}</span>`:''}
+                                ${o.startDate?`<span class="inline-flex items-center gap-1"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${formatDate(o.startDate)}${o.startTime?', '+formatTime12(o.startTime):''}</span>`:''}
                             </div>
                         </div>
                     </div>`;
