@@ -675,7 +675,8 @@
         document.getElementById('app').innerHTML = `
         <div class="bg-white border-b border-gray-200" style="background-color:#FEFEFF;">
             <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-                <div class="flex items-center gap-8">
+                <!-- Desktop header (md and up): unchanged -->
+                <div class="hidden md:flex items-center gap-8">
                     <img src="metrowide-logo.png" alt="Metrowide" class="h-8">
                     <div class="flex items-center gap-2">
                         ${['Orders','Consultations','Map','Metrics'].map(tab => {
@@ -698,12 +699,40 @@
                         }).join('')}
                     </div>
                 </div>
-                <div class="flex items-center gap-4">
+                <div class="hidden md:flex items-center gap-4">
                     ${msalAccount ? `<div class="flex items-center gap-2"><div class="w-2 h-2 bg-green-500 rounded-full"></div><span class="text-xs text-gray-600">OneDrive</span></div>` : `<button onclick="signIn()" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Connect OneDrive</button>`}
                     ${data.tab === 'Consultations'
                         ? `<button onclick="data.showNewCons=true; render();" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Consultation</button>`
                         : `<button onclick="data.showNew=true; render();" class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all font-medium text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Order</button>`
                     }
+                </div>
+                <!-- Mobile header (below md): Orders/Consultations + collapsed More menu -->
+                <div class="md:hidden flex items-center justify-between w-full">
+                    <div class="flex items-center gap-1">
+                        ${['Orders','Consultations'].map(tab => {
+                            const icons = {
+                                Orders: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
+                                Consultations: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>'
+                            };
+                            const onclick = tab === 'Consultations'
+                                ? `data.tab='Consultations'; if(!data.consLoaded) fetchConsultations(); else render();`
+                                : `data.tab='Orders'; render();`;
+                            const badge = tab === 'Consultations' && pendingCons > 0
+                                ? `<span class="ml-1 inline-flex items-center justify-center text-xs font-bold rounded-full text-white" style="background-color:#FF3B30;min-width:18px;height:18px;padding:0 5px;line-height:1;">${pendingCons}</span>` : '';
+                            return `<button onclick="${onclick}" class="px-3 py-2 rounded-lg font-medium transition-all text-sm ${data.tab===tab?'text-gray-900 font-semibold':'text-gray-600 hover:text-gray-900'}">
+                                <span class="flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[tab]}</svg>${tab}${badge}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <div class="dropdown-container relative flex-shrink-0">
+                        <button onclick="toggleDropdown('mobile-more',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+                        <div id="dropdown-mobile-more" class="dropdown-menu">
+                            <div class="dropdown-item" onclick="data.tab='Map'; render(); setTimeout(initializeMap,100);">Map</div>
+                            <div class="dropdown-item" onclick="data.tab='Metrics'; render(); setTimeout(initializeMap,100);">Metrics</div>
+                            <div class="dropdown-item" onclick="${data.tab==='Consultations'?`data.showNewCons=true; render();`:`data.showNew=true; render();`}">${data.tab==='Consultations'?'New Consultation':'New Order'}</div>
+                            ${msalAccount?`<div class="dropdown-item" style="color:#059669;">● OneDrive Connected</div>`:`<div class="dropdown-item" onclick="signIn()">Connect OneDrive</div>`}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
