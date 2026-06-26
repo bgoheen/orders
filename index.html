@@ -1005,7 +1005,7 @@
                             </div>
                             <div class="flex items-center gap-1.5 mt-1 text-xs text-gray-500">
                                 ${o.client?`<span class="truncate">${o.client}</span>`:''}
-                                ${o.fha?`<span class="text-xs font-semibold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}
+                                ${o.fha?`<span class="ml-auto flex-shrink-0 text-xs font-semibold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}
                             </div>
                             <div class="flex items-center gap-3 mt-1.5 text-sm text-gray-700">
                                 ${o.dueDate?`<span class="inline-flex items-center gap-1 ${isOverdue?'overdue-text':''}"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}</span>`:''}
