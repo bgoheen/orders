@@ -467,6 +467,24 @@
         }).catch(err => { console.error('MSAL error:', err); render(); });
     });
     window.addEventListener('message', (event) => { if (event.data === 'auth-complete') window.location.reload(); });
+    // Re-pull latest orders/consultations from OneDrive whenever the app regains focus
+    // (e.g. switching back from another app on mobile, or returning to this browser tab).
+    // Without this, a change made on one device never appears on another until a full
+    // reload + re-auth, since loadOrdersFromOneDrive() was previously only called at startup.
+    let lastVisibilitySync = 0;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && msalAccount) {
+            const now = Date.now();
+            if (now - lastVisibilitySync < 5000) return; // debounce rapid tab switches
+            lastVisibilitySync = now;
+            getAccessToken().then(() => loadOrdersFromOneDrive()).catch(e => console.error('Background sync error:', e));
+        }
+    });
+    async function refreshOrders() {
+        if (!msalAccount) return;
+        try { await getAccessToken(); await loadOrdersFromOneDrive(); }
+        catch(e) { console.error('Manual refresh error:', e); await showAlert('Failed to refresh from OneDrive', 'error'); }
+    }
     async function signIn() { try { await msalInstance.loginRedirect(loginRequest); } catch(e) { console.error('Login error:', e); } }
     async function getAccessToken() {
         const request = { ...loginRequest, account: msalAccount };
@@ -700,7 +718,7 @@
                     </div>
                 </div>
                 <div class="hidden md:flex items-center gap-4">
-                    ${msalAccount ? `<div class="flex items-center gap-2"><div class="w-2 h-2 bg-green-500 rounded-full"></div><span class="text-xs text-gray-600">OneDrive</span></div>` : `<button onclick="signIn()" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Connect OneDrive</button>`}
+                    ${msalAccount ? `<button onclick="refreshOrders()" class="flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded-lg transition-colors" title="Tap to refresh from OneDrive"><div class="w-2 h-2 bg-green-500 rounded-full"></div><span class="text-xs text-gray-600">OneDrive</span></button>` : `<button onclick="signIn()" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Connect OneDrive</button>`}
                     ${data.tab === 'Consultations'
                         ? `<button onclick="data.showNewCons=true; render();" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Consultation</button>`
                         : `<button onclick="data.showNew=true; render();" class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all font-medium text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Order</button>`
@@ -730,7 +748,7 @@
                             <div class="dropdown-item" onclick="data.tab='Map'; render(); setTimeout(initializeMap,100);">Map</div>
                             <div class="dropdown-item" onclick="data.tab='Metrics'; render(); setTimeout(initializeMap,100);">Metrics</div>
                             <div class="dropdown-item" onclick="${data.tab==='Consultations'?`data.showNewCons=true; render();`:`data.showNew=true; render();`}">${data.tab==='Consultations'?'New Consultation':'New Order'}</div>
-                            ${msalAccount?`<div class="dropdown-item" style="color:#059669;">● OneDrive Connected</div>`:`<div class="dropdown-item" onclick="signIn()">Connect OneDrive</div>`}
+                            ${msalAccount?`<div class="dropdown-item" onclick="refreshOrders()" style="color:#059669;">↻ Sync Now</div>`:`<div class="dropdown-item" onclick="signIn()">Connect OneDrive</div>`}
                         </div>
                     </div>
                 </div>
