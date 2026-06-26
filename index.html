@@ -61,6 +61,11 @@
         .map-fullscreen #map { height: calc(100vh - 56px) !important; }
         .map-fullscreen .map-header { position: sticky; top: 0; background: white; z-index: 10; padding: 8px 16px; border-bottom: 1px solid #e5e7eb; height: 56px; display: flex; align-items: center; justify-content: space-between; }
         .cons-type-badge { display: inline-flex; align-items: center; font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: #F3F4F6; color: #374151; text-transform: uppercase; letter-spacing: 0.04em; }
+        /* On small screens, anchor modals near the top instead of centering — iOS Safari's
+           dynamic URL bar eats into the viewport and centering pushes the modal top off-screen */
+        @media (max-width: 767px) {
+            .modal-overlay { align-items: flex-start !important; padding-top: max(16px, env(safe-area-inset-top)) !important; }
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -812,7 +817,7 @@
         const c = data.selectedCons;
         if (!c) return '';
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this){data.selectedCons=null;render();}">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this){data.selectedCons=null;render();}">
             <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
                     <div class="flex items-center gap-3">
@@ -845,7 +850,7 @@
 
     function renderNewConsultationModal() {
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this)discardNewCons();">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)discardNewCons();">
             <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
                     <h2 class="text-xl font-semibold text-gray-900">New Consultation</h2>
@@ -1053,7 +1058,7 @@
         const o = data.selected;
         if (!o) return '';
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this)closeDetailModal();">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)closeDetailModal();">
             <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
                     <div class="flex items-center gap-3"><h2 class="text-xl font-semibold text-gray-900">Order Details</h2><span class="status-badge status-${o.status.toLowerCase()}">${o.status}</span></div>
@@ -1139,7 +1144,7 @@
             ${contacts.length?`<div class="grid grid-cols-2 gap-x-6 gap-y-3">
                 ${contacts.map(([label,val,copyKey])=>`<div><p class="text-xs text-gray-500 mb-0.5">${label}</p><div class="flex items-center gap-1"><p class="text-sm text-gray-900">${val}</p>${copyKey?copyBtn(val,copyKey):''}</div></div>`).join('')}
             </div>`:''}
-            <div class="flex flex-wrap gap-2">
+            <div class="hidden md:flex flex-wrap gap-2">
                 ${(o.startDate&&o.startTime)?`<a href="${createGoogleCalendarLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>calendar</a>`:''}
                 ${(CALCOM_INSPECTION_URL&&(o.startDate||o.startTime))?`<a href="${createCalcomInspectionLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>cal.com</a>`:''}
                 ${SIGNING_ADMIN_URL?`<a href="${createSigningLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>sign</a>`:''}
@@ -1147,9 +1152,9 @@
                 ${QBO_WORKER_URL?(o.qboInvoiceId?`<a href="x-safari-${QBO_WEB_BASE}/app/invoices" onclick="return openCalendarInSafari(this.href,event)" title="Open QuickBooks invoices${o.qboDocNumber?` — look for #${o.qboDocNumber} near the top`:''}" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>view</a>`:`<button disabled title="Send an invoice to QuickBooks first" class="${secBtn} opacity-40 cursor-not-allowed"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>view</button>`):''}
             </div>
             ${o.desc?`<div><h3 class="text-xs text-gray-500 mb-1">Notes</h3><p class="text-sm text-gray-700 whitespace-pre-wrap">${o.desc}</p></div>`:''}
-            ${o.att&&o.att.length>0?`<div><h3 class="text-xs text-gray-500 mb-2">Attachments (${o.att.length})</h3><div class="space-y-2">${o.att.map(f=>`<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"><div class="flex items-center gap-3 flex-1 min-w-0"><svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="text-sm text-gray-900 truncate">${f.name}</span></div><div class="flex items-center gap-2 ml-4"><button onclick="downloadFromOneDrive('${f.id}')" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button><button onclick="deleteFile('${o.id}','${f.id}')" class="p-1.5 hover:bg-red-100 rounded"><svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div></div>`).join('')}</div></div>`:''}
-            ${msalAccount?`<div><h3 class="text-xs text-gray-500 mb-2">Upload Files</h3><div onclick="document.getElementById('file-upload-${o.id}').click()" class="border border-dashed border-gray-300 rounded-lg py-3 text-center text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"><svg class="w-4 h-4 inline-block align-text-bottom mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Drop files here or click to upload<input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event,'${o.id}')" class="hidden"></div></div>`:''}
-            <div class="pt-2 flex gap-3">
+            ${o.att&&o.att.length>0?`<div><h3 class="text-xs text-gray-500 mb-2">Attachments (${o.att.length})</h3><div class="space-y-2">${o.att.map(f=>`<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"><div class="flex items-center gap-3 flex-1 min-w-0"><svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="text-sm text-gray-900 truncate">${f.name}</span></div><div class="flex items-center gap-2 ml-4">${f.webUrl?`<a href="x-safari-${f.webUrl}" onclick="return openCalendarInSafari(this.href,event)" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></a>`:''}<button onclick="downloadFromOneDrive('${f.id}')" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button><button onclick="deleteFile('${o.id}','${f.id}')" class="hidden md:inline-block p-1.5 hover:bg-red-100 rounded"><svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div></div>`).join('')}</div></div>`:''}
+            ${msalAccount?`<div class="hidden md:block"><h3 class="text-xs text-gray-500 mb-2">Upload Files</h3><div onclick="document.getElementById('file-upload-${o.id}').click()" class="border border-dashed border-gray-300 rounded-lg py-3 text-center text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"><svg class="w-4 h-4 inline-block align-text-bottom mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Drop files here or click to upload<input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event,'${o.id}')" class="hidden"></div></div>`:''}
+            <div class="hidden md:flex pt-2 gap-3">
                 ${o.status==='Ordered'?`<button onclick="updateStatus('${o.id}','Completed')" class="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">Mark Completed</button><button onclick="updateStatus('${o.id}','Cancelled')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Cancelled</button>`:`<button onclick="updateStatus('${o.id}','Ordered')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Ordered</button>`}
             </div>
         </div>`;
@@ -1160,7 +1165,7 @@
     function renderNewOrderModal() {
         const clients = [...new Set(data.orders.map(o=>o.client).filter(Boolean))].sort();
         return `
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="if(event.target===this)discardNewOrder();">
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)discardNewOrder();">
             <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
                 <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
                     <div>
