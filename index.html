@@ -489,7 +489,16 @@
     async function getAccessToken() {
         const request = { ...loginRequest, account: msalAccount };
         try { const r = await msalInstance.acquireTokenSilent(request); accessToken = r.accessToken; return accessToken; }
-        catch(e) { if (e instanceof msal.InteractionRequiredAuthError) { const r = await msalInstance.acquireTokenPopup(request); accessToken = r.accessToken; return accessToken; } throw e; }
+        catch(e) {
+            if (e instanceof msal.InteractionRequiredAuthError) {
+                // Popups don't work reliably in an installed iOS PWA (no popup window context),
+                // so fall back to a redirect instead. This navigates away and back; the existing
+                // handleRedirectPromise() flow at startup will pick up the session and reload data.
+                await msalInstance.acquireTokenRedirect(request);
+                return null; // unreachable in practice — acquireTokenRedirect navigates away
+            }
+            throw e;
+        }
     }
     async function uploadToOneDrive(file, orderId) {
         if (!accessToken) await getAccessToken();
