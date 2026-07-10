@@ -445,6 +445,52 @@
         if (!fee) return 0;
         return parseFloat(fee.toString().replace(/[$,]/g, '')) || 0;
     }
+    // Abbreviate a street address to the short form used for appraisal file names.
+    // e.g. "7654 12th Street North, Oakdale, MN 55128" -> "7654 12th St N"
+    // Only the trailing street-type suffix and directional words are shortened;
+    // name words in the middle (Lake, Ridge, etc.) are left alone.
+    function shortStreet(addr) {
+        if (!addr) return '';
+        // Drop a trailing ", USA" / " USA", then keep only the street line (before the first comma)
+        let s = String(addr).replace(/,?\s*USA\s*$/i, '').split(',')[0].trim().replace(/\s+/g, ' ');
+        if (!s) return '';
+        const dir = {
+            north:'N', south:'S', east:'E', west:'W',
+            northeast:'NE', northwest:'NW', southeast:'SE', southwest:'SW',
+            n:'N', s:'S', e:'E', w:'W', ne:'NE', nw:'NW', se:'SE', sw:'SW'
+        };
+        const suf = {
+            street:'St', st:'St', avenue:'Ave', ave:'Ave', boulevard:'Blvd', blvd:'Blvd',
+            drive:'Dr', dr:'Dr', road:'Rd', rd:'Rd', lane:'Ln', ln:'Ln', court:'Ct', ct:'Ct',
+            circle:'Cir', cir:'Cir', curve:'Crv', crv:'Crv', place:'Pl', pl:'Pl',
+            terrace:'Ter', trail:'Trl', trl:'Trl', parkway:'Pkwy', pkwy:'Pkwy',
+            highway:'Hwy', hwy:'Hwy', square:'Sq', crossing:'Xing', cove:'Cv', point:'Pt',
+            ridge:'Rdg', crescent:'Cres', heights:'Hts', junction:'Jct', landing:'Lndg',
+            loop:'Loop', plaza:'Plz', turnpike:'Tpke', path:'Path', pass:'Pass', run:'Run',
+            row:'Row', way:'Way', bend:'Bnd', bay:'Bay', gardens:'Gdns', grove:'Grv',
+            hollow:'Holw', manor:'Mnr', meadow:'Mdw', meadows:'Mdws', mount:'Mt',
+            overlook:'Ovlk', spur:'Spur', station:'Sta', summit:'Smt', valley:'Vly',
+            view:'Vw', walk:'Walk', alley:'Aly', causeway:'Cswy', center:'Ctr', cliff:'Clf',
+            creek:'Crk', estate:'Est', expressway:'Expy', ferry:'Fry', field:'Fld',
+            flat:'Flt', ford:'Frd', forest:'Frst', fork:'Frk', freeway:'Fwy',
+            gateway:'Gtwy', glen:'Gln', green:'Grn', harbor:'Hbr', hill:'Hl', hills:'Hls',
+            island:'Is', knoll:'Knl', lake:'Lk', lodge:'Ldg', mews:'Mews', mill:'Ml',
+            mission:'Msn', orchard:'Orch', pike:'Pike', plain:'Pln', port:'Prt',
+            prairie:'Pr', ranch:'Rnch', rapids:'Rpds', river:'Riv', shore:'Shr',
+            shores:'Shrs', spring:'Spg', springs:'Spgs', stream:'Strm', trace:'Trce',
+            track:'Trak', tunnel:'Tunl', village:'Vlg', vista:'Vis'
+        };
+        const key = w => w.replace(/\./g, '').toLowerCase();
+        const toks = s.split(' ');
+        // Trailing directional (e.g. "... Street North" -> pull off "North")
+        let trail = '';
+        if (toks.length >= 3 && dir[key(toks[toks.length-1])]) { trail = dir[key(toks.pop())]; }
+        // Street-type suffix is now the last token
+        if (toks.length >= 2) { const k = key(toks[toks.length-1]); if (suf[k]) toks[toks.length-1] = suf[k]; }
+        // Leading directional (house number first, then e.g. "West ...")
+        if (toks.length >= 3 && /^\d/.test(toks[0]) && dir[key(toks[1])]) { toks[1] = dir[key(toks[1])]; }
+        return toks.join(' ') + (trail ? ' ' + trail : '');
+    }
     // ============================================================
     // MSAL / ONEDRIVE
     // ============================================================
@@ -501,14 +547,34 @@
             throw e;
         }
     }
-    async function uploadToOneDrive(file, orderId) {
+    // PUT a file via XMLHttpRequest so we can report upload progress (fetch can't).
+    // onProgress receives a fraction 0..1.
+    function xhrPut(url, file, token, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+            xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    if (onProgress) onProgress(1);
+                    try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(new Error('Bad response from OneDrive')); }
+                } else {
+                    reject(new Error('Upload failed: ' + xhr.status + ' ' + xhr.statusText));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Network error during upload'));
+            xhr.send(file);
+        });
+    }
+    async function uploadToOneDrive(file, orderId, onProgress) {
         if (!accessToken) await getAccessToken();
         const sanitized = file.name.replace(/[+]/g, '_');
         const fileName = `${orderId}_${sanitized}`;
         const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/${encodeURIComponent(fileName)}:/content`;
-        const response = await fetch(uploadUrl, { method: 'PUT', headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': file.type }, body: file });
-        if (response.ok) { const r = await response.json(); return { id: r.id, name: file.name, date: new Date().toLocaleDateString(), size: file.size, webUrl: r.webUrl, downloadUrl: r['@microsoft.graph.downloadUrl'] }; }
-        throw new Error('Upload failed: ' + response.statusText);
+        const r = await xhrPut(uploadUrl, file, accessToken, onProgress);
+        return { id: r.id, name: file.name, date: new Date().toLocaleDateString(), size: file.size, webUrl: r.webUrl, downloadUrl: r['@microsoft.graph.downloadUrl'] };
     }
     async function downloadFromOneDrive(fileId) {
         if (!accessToken) await getAccessToken();
@@ -1194,7 +1260,7 @@
             <div class="flex items-start gap-2">
                 <svg class="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                 <h2 class="text-lg font-semibold text-gray-900 leading-snug">${fullAddr}</h2>
-                ${copyBtn(fullAddr,'address')}
+                ${copyBtn(shortStreet(o.addr).replace(/'/g,"\\'"),'address')}
             </div>
             ${stats.length?`<div class="grid gap-2" style="grid-template-columns:repeat(${stats.length},minmax(0,1fr));">
                 ${stats.map(([label,val])=>`<div class="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2.5"><p class="text-xs text-gray-500 mb-0.5">${label}</p><p class="text-base font-semibold text-gray-900">${val}</p></div>`).join('')}
@@ -1331,7 +1397,24 @@
         const files = Array.from(e.target.files); if(!files.length) return;
         const order = data.orders.find(o=>o.id===orderId); if(!order) return;
         if (!order.att) order.att=[];
-        for (const file of files) { try { order.att.push(await uploadToOneDrive(file, orderId)); } catch(e) { await showAlert('Failed to upload '+file.name+': '+e.message, 'error'); } }
+        // Swap the dropzone contents for a live progress bar during upload
+        const dropzone = e.target.parentElement;
+        let bar = null, label = null;
+        if (dropzone) {
+            dropzone.innerHTML = `<div class="text-left px-1"><p id="up-label" class="text-sm text-gray-600 mb-2"></p><div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden"><div id="up-bar" class="h-2 rounded-full transition-all duration-150" style="width:0%;background-color:#FF3B30;"></div></div></div>`;
+            bar = dropzone.querySelector('#up-bar');
+            label = dropzone.querySelector('#up-label');
+        }
+        let done = 0;
+        for (const file of files) {
+            if (label) label.textContent = files.length > 1 ? `Uploading ${file.name} (${done+1} of ${files.length})…` : `Uploading ${file.name}…`;
+            if (bar) bar.style.width = '0%';
+            try {
+                order.att.push(await uploadToOneDrive(file, orderId, (frac) => { if (bar) bar.style.width = Math.round(frac*100)+'%'; }));
+            } catch(err) { await showAlert('Failed to upload '+file.name+': '+err.message, 'error'); }
+            done++;
+        }
+        if (label) label.textContent = 'Done';
         save(); if(data.selected&&data.selected.id===orderId) data.selected=order; render();
     }
     async function deleteFile(orderId, fileId) {
