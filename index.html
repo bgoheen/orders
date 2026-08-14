@@ -1394,15 +1394,17 @@
             const fi = document.getElementById('new-file-upload');
             if (fi&&fi.files.length>0&&msalAccount) { for (const file of Array.from(fi.files)) { try { newOrder.att.push(await uploadToOneDrive(file, newOrder.id)); } catch(e) { await showAlert('Failed to upload '+file.name, 'error'); } } }
             data.orders.push(newOrder); save();
-            // Mark consultation as converted if applicable
-            if (data.convertingConsId) {
-                try {
-                    if (SUPABASE_READY()) await patchConsultation(data.convertingConsId, { status: 'converted' });
-                    const c = data.consultations.find(c=>c.id===data.convertingConsId); if(c) c.status='converted';
-                } catch(e) { console.error('Error marking consultation converted:', e); }
-            }
             data.showNew=false; data.prefillOrder=null; data.convertingConsId=null; window.newOrderLocation=null; render();
         };
+        // Mark consultation as converted FIRST, independently of the order-save/geocoding
+        // branch below, so the Supabase patch always persists (prevents it reappearing on reload).
+        const convertingId = data.convertingConsId;
+        if (convertingId) {
+            const c = data.consultations.find(c=>c.id===convertingId); if(c) c.status='converted';
+            try {
+                if (SUPABASE_READY()) await patchConsultation(convertingId, { status: 'converted' });
+            } catch(e) { console.error('Error marking consultation converted:', e); }
+        }
         if (!newOrder.lat||!newOrder.lng) { const gc=new google.maps.Geocoder(); gc.geocode({address:addr},async(results,status)=>{ if(status==='OK'&&results[0]){newOrder.lat=results[0].geometry.location.lat();newOrder.lng=results[0].geometry.location.lng();} await finish(); }); }
         else await finish();
     }
