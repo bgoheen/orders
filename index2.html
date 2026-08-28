@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appraisal Orders</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <!-- PWA: manifest + iOS home-screen support -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#FEFEFF">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Orders">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHqA52DEjw6hBLLbshcNXACDYBGgXAPlE&libraries=places"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background-color: #FAFBFC; overflow-y: scroll; }
+        .transition-all { transition: all 0.2s ease; }
+        .order-card { transition: all 0.15s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .order-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
+        .status-ordered { background-color: #FEF3C7; color: #92400E; }
+        .status-completed { background-color: #D1FAE5; color: #065F46; }
+        .status-cancelled { background-color: #dee2e6; color: #495057; }
+        .status-overdue { background-color: #FEE2E2; color: #991B1B; font-weight: 600; }
+        .status-pending { background-color: #EEF2FF; color: #3730A3; }
+        .status-converted { background-color: #D1FAE5; color: #065F46; }
+        .status-strip-ordered { border-left: 4px solid #F59E0B !important; }
+        .status-strip-completed { border-left: 4px solid #10B981 !important; }
+        .status-strip-cancelled { border-left: 4px solid #6B7280 !important; }
+        .status-strip-pending { border-left: 4px solid #6366F1 !important; }
+        .status-strip-converted { border-left: 4px solid #10B981 !important; }
+        .overdue-border { border-left: 4px solid #DC2626 !important; }
+        .overdue-text { color: #DC2626 !important; font-weight: 600; }
+        #map { height: 500px; border-radius: 12px; overflow: hidden; }
+        .dropdown-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 100; min-width: 160px; }
+        .dropdown-menu.show { display: block; }
+        .order-card { position: relative; z-index: 1; }
+        .order-card:has(.dropdown-menu.show) { z-index: 101; }
+        .dropdown-item { padding: 8px 12px; cursor: pointer; transition: background-color 0.15s; font-size: 14px; color: #374151; }
+        .dropdown-item:hover { background-color: #f3f4f6; }
+        .dropdown-item:first-child { border-radius: 8px 8px 0 0; }
+        .dropdown-item:last-child { border-radius: 0 0 8px 8px; }
+        .dropdown-item.danger { color: #dc2626; }
+        .dropdown-item.danger:hover { background-color: #fef2f2; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        @keyframes _mFadeIn { from { opacity:0; } to { opacity:1; } }
+        @keyframes _mSlideIn { from { transform:scale(0.95) translateY(-6px);opacity:0; } to { transform:scale(1) translateY(0);opacity:1; } }
+        select { height: 42px; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+        .map-fullscreen { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 2000 !important; border-radius: 0 !important; padding: 0 !important; border: none !important; }
+        .map-fullscreen #map { height: calc(100vh - 56px) !important; }
+        .map-fullscreen .map-header { position: sticky; top: 0; background: white; z-index: 10; padding: 8px 16px; border-bottom: 1px solid #e5e7eb; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+        .cons-type-badge { display: inline-flex; align-items: center; font-size: 0.7rem; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: #F3F4F6; color: #374151; text-transform: uppercase; letter-spacing: 0.04em; }
+        /* On small screens, anchor modals near the top instead of centering — iOS Safari's
+           dynamic URL bar eats into the viewport and centering pushes the modal top off-screen */
+        @media (max-width: 767px) {
+            .modal-overlay { align-items: flex-start !important; padding-top: max(16px, env(safe-area-inset-top)) !important; }
+        }
+        /* ---- visual polish: dark header, table rows, copy affordance ---- */
+        .hdr-tab { color:#9CA3AF; transition:background-color .15s, color .15s; }
+        .hdr-tab:hover { color:#fff; background-color:rgba(255,255,255,0.08); }
+        .hdr-tab-active { color:#fff; background-color:rgba(255,255,255,0.10); }
+        .hdr-icon-btn { color:#D1D5DB; background-color:rgba(255,255,255,0.10); transition:all .15s; }
+        .hdr-icon-btn:hover { background-color:rgba(255,255,255,0.20); color:#fff; }
+        .accent-btn { background-color:#F06556; color:#fff; transition:background-color .15s; }
+        .accent-btn:hover { background-color:#DA5647; }
+        .seg { background-color:#EDEFF2; padding:3px; border-radius:10px; display:inline-flex; gap:2px; }
+        .seg-btn { font-size:13.5px; font-weight:500; color:#6B7280; padding:7px 14px; border-radius:8px; transition:all .15s; }
+        .seg-btn:hover { color:#111827; }
+        .seg-btn-active { color:#111827; background:#fff; font-weight:600; box-shadow:0 1px 2px rgba(15,23,42,0.08); }
+        .seg-count { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:#9CA3AF; margin-left:7px; }
+        .seg-btn-active .seg-count { color:#6B7280; }
+        .list-shell { background:#fff; border:1px solid #E8EAED; border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,0.03); }
+        .list-head { display:grid; gap:0 18px; align-items:center; padding:9px 16px 9px 19px; background:#FBFBFC; border-bottom:1px solid #E8EAED; }
+        .list-head span { font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9CA3AF; }
+        .row-grid { display:grid; gap:0 18px; align-items:center; }
+        .list-head, .row-grid { grid-template-columns:minmax(0,1fr) 118px 92px 88px 104px 140px 44px 40px; }
+        .cons-head, .cons-grid { grid-template-columns:minmax(0,1fr) 96px 200px 140px 190px 128px 40px; }
+        .order-card.list-row { border-radius:0 !important; box-shadow:none !important; border-top:0; border-right:0; border-bottom:1px solid #F1F2F4; padding-top:0; padding-bottom:0; }
+        .order-card.list-row:hover { background-color:#FAFBFC; box-shadow:none !important; }
+        .order-card.list-row:last-child { border-bottom:0; }
+        .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+        .date-chip { display:inline-flex; align-items:center; font-size:13px; padding:3px 8px; border-radius:6px; color:#4B5563; }
+        .date-chip-warn { background:#FFFBEB; color:#92400E; font-weight:600; }
+        .date-chip-late { background:#FEF2F2; color:#991B1B; font-weight:600; }
+        .copy-row { cursor:pointer; border-radius:7px; padding:7px 8px; margin:0 -8px; transition:background-color .12s; }
+        .copy-row:hover { background-color:#F9FAFB; }
+        .copy-glyph { font-size:11px; color:#D1D5DB; transition:color .12s; }
+        .copy-row:hover .copy-glyph { color:#9CA3AF; }
+        .copy-dark { cursor:pointer; border-radius:8px; transition:background-color .12s; }
+        .copy-dark:hover { background-color:rgba(255,255,255,0.09); }
+        .act-pill { display:inline-flex; align-items:center; justify-content:center; gap:7px; font-size:13px; font-weight:500; color:#374151; border:1px solid #E5E7EB; border-radius:8px; padding:7px 13px; background:#fff; transition:all .15s; }
+        .act-pill:hover { background:#F9FAFB; border-color:#D1D5DB; }
+        .ribbon { display:grid; background:#F9FAFB; border-bottom:1px solid #E5E7EB; }
+        .ribbon > div { padding:14px 20px; border-right:1px solid #E5E7EB; }
+        .ribbon > div:last-child { border-right:0; }
+        .ribbon-label { font-size:11px; letter-spacing:0.05em; text-transform:uppercase; color:#9CA3AF; margin:0 0 3px; }
+        .ribbon-val { margin:0; font-size:20px; font-weight:650; letter-spacing:-0.01em; color:#111827; }
+    </style>
+</head>
+<body class="bg-gray-50">
+<div id="app"></div>
+<script>
+    let searchTimeout = null;
+
+    // ============================================================
+    // CUSTOM MODAL SYSTEM  (replaces native alert/confirm/prompt)
+    // ============================================================
+    function _modal(html) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9999;animation:_mFadeIn 0.15s ease;';
+        overlay.innerHTML = html;
+        document.body.appendChild(overlay);
+        const panel = overlay.querySelector('.modal-panel');
+        if (panel) panel.style.animation = '_mSlideIn 0.15s ease';
+        return overlay;
+    }
+    function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function showAlert(message, type) {
+        type = type || 'info';
+        const iconBg   = { success:'#D1FAE5', error:'#FEE2E2', warning:'#FEF3C7', info:'#EEF2FF' }[type] || '#EEF2FF';
+        const iconClr  = { success:'#065F46', error:'#991B1B', warning:'#92400E', info:'#3730A3' }[type] || '#3730A3';
+        const iconPath = type === 'success'
+            ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>'
+            : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>';
+        return new Promise(resolve => {
+            const overlay = _modal(`
+            <div class="modal-panel" style="background:white;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+                <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:20px;">
+                    <div style="width:44px;height:44px;min-width:44px;background:${iconBg};border-radius:50%;display:flex;align-items:center;justify-content:center;">
+                        <svg width="22" height="22" fill="none" stroke="${iconClr}" viewBox="0 0 24 24">${iconPath}</svg>
+                    </div>
+                    <p style="font-size:15px;color:#111827;line-height:1.6;margin:0;padding-top:8px;white-space:pre-wrap;">${_esc(message)}</p>
+                </div>
+                <div style="display:flex;justify-content:flex-end;">
+                    <button id="_mok" style="padding:8px 22px;background:#111827;color:white;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:opacity 0.1s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">OK</button>
+                </div>
+            </div>`);
+            const close = () => { document.body.removeChild(overlay); resolve(); };
+            overlay.querySelector('#_mok').onclick = close;
+            overlay.onclick = e => { if (e.target === overlay) close(); };
+            const kh = e => { if (e.key==='Enter'||e.key==='Escape') { document.removeEventListener('keydown',kh); close(); } };
+            document.addEventListener('keydown', kh);
+            setTimeout(() => overlay.querySelector('#_mok').focus(), 50);
+        });
+    }
+
+    function showConfirm(message, opts) {
+        opts = opts || {};
+        const confirmText = opts.confirmText || 'Confirm';
+        const cancelText  = opts.cancelText  || 'Cancel';
+        const danger      = opts.danger      || false;
+        const iconBg   = danger ? '#FEE2E2' : '#F3F4F6';
+        const iconClr  = danger ? '#991B1B' : '#374151';
+        const btnBg    = danger ? '#DC2626' : '#111827';
+        return new Promise(resolve => {
+            const overlay = _modal(`
+            <div class="modal-panel" style="background:white;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+                <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:20px;">
+                    <div style="width:44px;height:44px;min-width:44px;background:${iconBg};border-radius:50%;display:flex;align-items:center;justify-content:center;">
+                        <svg width="22" height="22" fill="none" stroke="${iconClr}" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${danger ? 'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z' : 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/></svg>
+                    </div>
+                    <p style="font-size:15px;color:#111827;line-height:1.6;margin:0;padding-top:8px;white-space:pre-wrap;">${_esc(message)}</p>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:10px;">
+                    <button id="_mcancel" style="padding:8px 16px;background:white;color:#374151;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">${_esc(cancelText)}</button>
+                    <button id="_mconfirm" style="padding:8px 20px;background:${btnBg};color:white;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:opacity 0.1s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">${_esc(confirmText)}</button>
+                </div>
+            </div>`);
+            const close = r => { document.body.removeChild(overlay); resolve(r); };
+            overlay.querySelector('#_mconfirm').onclick = () => close(true);
+            overlay.querySelector('#_mcancel').onclick  = () => close(false);
+            overlay.onclick = e => { if (e.target === overlay) close(false); };
+            const kh = e => {
+                if (e.key==='Escape') { document.removeEventListener('keydown',kh); close(false); }
+                if (e.key==='Enter')  { document.removeEventListener('keydown',kh); close(true); }
+            };
+            document.addEventListener('keydown', kh);
+            setTimeout(() => overlay.querySelector('#_mcancel').focus(), 50);
+        });
+    }
+
+    function showPrompt(message, placeholder) {
+        placeholder = placeholder || '';
+        return new Promise(resolve => {
+            const overlay = _modal(`
+            <div class="modal-panel" style="background:white;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+                <p style="font-size:15px;font-weight:600;color:#111827;margin:0 0 14px;">${_esc(message)}</p>
+                <input id="_minput" type="text" placeholder="${_esc(placeholder)}" style="width:100%;padding:9px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:16px;font-family:inherit;">
+                <div style="display:flex;justify-content:flex-end;gap:10px;">
+                    <button id="_mcancel" style="padding:8px 16px;background:white;color:#374151;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">Cancel</button>
+                    <button id="_mconfirm" style="padding:8px 20px;background:#111827;color:white;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">OK</button>
+                </div>
+            </div>`);
+            const input = overlay.querySelector('#_minput');
+            const close = r => { document.body.removeChild(overlay); resolve(r); };
+            overlay.querySelector('#_mconfirm').onclick = () => close(input.value || null);
+            overlay.querySelector('#_mcancel').onclick  = () => close(null);
+            overlay.onclick = e => { if (e.target === overlay) close(null); };
+            input.addEventListener('keydown', e => {
+                if (e.key==='Enter')  close(input.value || null);
+                if (e.key==='Escape') close(null);
+            });
+            setTimeout(() => input.focus(), 50);
+        });
+    }
+
+    // Helpers for inline-onclick modal flows
+    async function discardNewCons() {
+        if (await showConfirm('Discard this new consultation?\nYour entries will be lost.', { confirmText: 'Discard' })) {
+            data.showNewCons = false; render();
+        }
+    }
+    async function discardNewOrder() {
+        if (await showConfirm('Discard this new order?\nYour entries will be lost.', { confirmText: 'Discard' })) {
+            data.showNew = false; data.prefillOrder = null; data.convertingConsId = null; render();
+        }
+    }
+    async function closeDetailModal() {
+        if (!data.edit || await showConfirm('Discard unsaved changes?', { confirmText: 'Discard' })) {
+            data.selected = null; data.edit = false; render();
+        }
+    }
+    async function addNewClient(sel) {
+        const n = await showPrompt('Enter new client name:');
+        if (n) { const o = new Option(n, n, true, true); sel.add(o, sel.options.length - 1); }
+        else { sel.value = ''; }
+    }
+
+    // ============================================================
+    // SUPABASE CONFIG — fill these in after completing setup guide
+    // ============================================================
+    const SUPABASE_URL = 'https://drfbasenjmqzhtgvwbkk.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_nEPBrs7LET_ZHftST83qNg_-DoXkrJa';
+
+    const SUPABASE_READY = () => SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+
+    // Public cal.com booking page for the appraisal inspection event
+    const CALCOM_INSPECTION_URL = 'https://cal.com/metrowide/inspection';
+
+    // Signing system admin page (prefilled via URL params)
+    const SIGNING_ADMIN_URL = 'https://sign.metrowide.co/admin';
+
+    // Zoho Books bridge (Cloudflare Worker)
+    const ZOHO_WORKER_URL = 'https://qbo-bridge.bgoheen.workers.dev';
+    const ZOHO_APP_SECRET = 'v$97!Kay6XVY*Ph';
+    // Zoho Books web app base — used to deep-link to a created invoice.
+    // Use your data-center domain: books.zoho.com (US), books.zoho.eu (EU), books.zoho.in (IN), books.zoho.com.au (AU).
+    const ZOHO_WEB_BASE = 'https://books.zoho.com';
+
+    async function sendToZoho(orderId, btn) {
+        const o = data.orders.find(x => x.id === orderId);
+        if (!o) return;
+        const customer = (o.client && o.client.trim().toLowerCase() !== 'private') ? o.client.trim() : (o.poc || '').trim();
+        if (!customer) { await showAlert('This order has no Client or POC name to use as the Zoho Books customer.', 'warning'); return; }
+        const fee = parseFee(o.fee);
+        if (!fee) { await showAlert('This order has no fee amount to invoice.', 'warning'); return; }
+        const addr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
+        if (!await showConfirm(`Create a Zoho Books invoice?\n\nCustomer: ${customer}\nInvoice #: ${o.num || '(auto)'}\nAmount: $${fee}`, { confirmText: 'Create Invoice' })) return;
+        const original = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+        try {
+            const res = await fetch(`${ZOHO_WORKER_URL}/zoho/invoice`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-app-secret': ZOHO_APP_SECRET },
+                body: JSON.stringify({ customer, orderNumber: o.num || '', address: addr, fee })
+            });
+            const d = await res.json();
+            if (res.ok && d.ok) {
+                o.zohoInvoiceId = d.invoiceId;
+                o.zohoDocNumber = d.docNumber;
+                if (data.selected && data.selected.id === o.id) { data.selected.zohoInvoiceId = d.invoiceId; data.selected.zohoDocNumber = d.docNumber; }
+                save();
+                render();
+                await showAlert(`Invoice #${d.docNumber} created in Zoho Books for $${d.total}.\n\nThe "view" button is now active on this order — use it to open the invoice in Zoho Books when you need to.`, 'success');
+            }
+            else { await showAlert('Zoho Books error: ' + (d.error || 'unknown error'), 'error'); }
+        } catch(e) {
+            await showAlert('Could not reach the Zoho Books bridge: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = original; }
+        }
+    }
+
+    async function supabaseFetch(path, options = {}) {
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+            ...options,
+            headers: {
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation',
+                ...(options.headers || {})
+            }
+        });
+        if (response.status === 204) return null;
+        if (!response.ok) { const t = await response.text(); throw new Error(t); }
+        return response.json();
+    }
+
+    async function fetchConsultations() {
+        if (!SUPABASE_READY()) { data.consLoaded = true; render(); return; }
+        try {
+            const results = await supabaseFetch('consultations?order=consultation_date.desc.nullsfirst,created_at.desc');
+            // Exclude order-originated inspection bookings: these come from the cal.com
+            // inspection-scheduling flow (createCalcomInspectionLink), which pre-fills the
+            // booking notes with "Order #: ... | Property: ...". They are not intake
+            // consultations and shouldn't appear in the Consultations tab, badge, or counts.
+            data.consultations = (results || []).filter(c => !(c.notes && c.notes.trim().startsWith('Order #:')));
+            data.consLoaded = true;
+        } catch(e) {
+            console.error('Fetch consultations error:', e);
+            data.consLoaded = true;
+        }
+        render();
+    }
+
+    async function insertConsultation(cons) {
+        const result = await supabaseFetch('consultations', { method: 'POST', body: JSON.stringify(cons) });
+        return Array.isArray(result) ? result[0] : result;
+    }
+
+    async function patchConsultation(id, updates) {
+        await supabaseFetch(`consultations?id=eq.${id}`, {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify(updates)
+        });
+    }
+
+    async function eraseConsultation(id) {
+        await supabaseFetch(`consultations?id=eq.${id}`, {
+            method: 'DELETE', headers: { 'Prefer': 'return=minimal' }
+        });
+    }
+
+    // ============================================================
+    // UTILITY FUNCTIONS
+    // ============================================================
+    function formatTime12(timeStr) {
+        if (!timeStr) return '';
+        const [h, m] = timeStr.split(':');
+        const hr = parseInt(h);
+        return (hr === 0 ? 12 : hr > 12 ? hr - 12 : hr) + ':' + m + (hr >= 12 ? 'pm' : 'am');
+    }
+    function parseLocalDate(dateStr) {
+        if (!dateStr) return null;
+        const [year, month, day] = dateStr.split('-');
+        return new Date(year, month - 1, day);
+    }
+    function formatDate(dateStr) {
+        const date = parseLocalDate(dateStr);
+        if (!date) return '';
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    function formatConsDate(isoStr) {
+        if (!isoStr) return '';
+        const d = new Date(isoStr);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+            ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+    function handleSearch(value) {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => { data.search = value; render(); }, 800);
+    }
+    function clearSearch() {
+        data.search = '';
+        document.getElementById('search-input').value = '';
+        render();
+    }
+
+    let map = null, markers = [], heatmap = null;
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.dropdown-container')) {
+            document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+        }
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const container = document.getElementById('map-container');
+            if (container && container.classList.contains('map-fullscreen')) toggleMapFullscreen();
+        }
+    });
+
+    function toggleDropdown(orderId, event) {
+        event.stopPropagation();
+        const dropdown = document.getElementById(`dropdown-${orderId}`);
+        document.querySelectorAll('.dropdown-menu').forEach(m => {
+            if (m.id !== `dropdown-${orderId}`) m.classList.remove('show');
+        });
+        dropdown.classList.toggle('show');
+    }
+
+    function createGoogleCalendarLink(order) {
+        if (!order.startDate || !order.startTime) return '#';
+        const startDateTime = order.startDate + 'T' + order.startTime + ':00';
+        const startDate = new Date(startDateTime);
+        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+        const fmt = (d) => d.toISOString().replace(/-|:|\.\d+/g, '');
+        const title = encodeURIComponent('Inspection: ' + order.addr);
+        const details = encodeURIComponent(['Order #: ' + (order.num || ''), 'Client: ' + (order.client || ''), 'Borrower: ' + (order.borrower || ''), 'POC: ' + (order.poc || ''), 'Phone: ' + (order.phone || ''), 'Email: ' + (order.email || ''), 'Loan #: ' + (order.loan || '')].filter(Boolean).join('\n'));
+        const location = encodeURIComponent(order.addr || '');
+        const dates = fmt(startDate) + '/' + fmt(endDate);
+        return `x-safari-https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}&src=334479ad123a46497aae242cb56383049c89ce838424b5df00bbdfdb1cc25b74%40group.calendar.google.com`;
+    }
+    function createCalcomInspectionLink(o) {
+        if (!CALCOM_INSPECTION_URL) return '#';
+        const addr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
+        const feeDisplay = o.fee ? (o.fee.toString().startsWith('$') ? o.fee : '$'+o.fee) : '';
+        const notes = ['Order #: ' + (o.num||''), 'Property: ' + addr, feeDisplay ? 'Fee: ' + feeDisplay : ''].filter(Boolean).join(' | ');
+        const params = new URLSearchParams();
+        if (o.poc) params.set('name', o.poc);
+        if (o.email) params.set('email', o.email);
+        params.set('notes', notes);
+        if (addr) params.set('location', JSON.stringify({ value: 'attendeeInPerson', optionValue: addr }));
+        // Preselect the day (and attempt the exact time slot) from the order's inspection date/time
+        if (o.startDate) {
+            params.set('month', o.startDate.slice(0,7));
+            params.set('date', o.startDate);
+            if (o.startTime) {
+                let offset = '+00:00';
+                try {
+                    const ref = new Date(`${o.startDate}T${o.startTime}:00Z`);
+                    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', timeZoneName: 'longOffset' }).formatToParts(ref);
+                    const tzn = parts.find(p => p.type === 'timeZoneName');
+                    if (tzn) { const v = tzn.value.replace('GMT','').replace('UTC',''); if (v) offset = v; }
+                } catch(e) {}
+                params.set('slot', `${o.startDate}T${o.startTime}:00${offset}`);
+            }
+        }
+        const sep = CALCOM_INSPECTION_URL.includes('?') ? '&' : '?';
+        return 'x-safari-' + CALCOM_INSPECTION_URL + sep + params.toString();
+    }
+    function createSigningLink(o) {
+        if (!SIGNING_ADMIN_URL) return '#';
+        const addr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
+        const params = new URLSearchParams();
+        if (o.poc) params.set('clientName', o.poc);
+        if (o.email) params.set('clientEmail', o.email);
+        if (addr) params.set('propertyAddress', addr);
+        if (o.startDate) params.set('dateOfValue', o.startDate);
+        if (o.dueDate) params.set('deliveryDate', o.dueDate);
+        const fee = parseFee(o.fee);
+        if (fee) params.set('appraisalFee', fee);
+        const sep = SIGNING_ADMIN_URL.includes('?') ? '&' : '?';
+        return 'x-safari-' + SIGNING_ADMIN_URL + sep + params.toString();
+    }
+    function openCalendarInSafari(url, event) {
+        if (event) event.preventDefault();
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        setTimeout(() => { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); }, 1500);
+        return false;
+    }
+    function formatPhone(value) {
+        const n = value.replace(/\D/g, '');
+        if (n.length <= 3) return n;
+        if (n.length <= 6) return `(${n.slice(0,3)}) ${n.slice(3)}`;
+        return `(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6,10)}`;
+    }
+    // Standardize any phone (incl. cal.com's +1XXXXXXXXXX) to (XXX) XXX-XXXX
+    function formatUSPhone(value) {
+        if (!value) return '';
+        let n = String(value).replace(/\D/g, '');
+        if (n.length === 11 && n[0] === '1') n = n.slice(1);
+        if (n.length === 10) return `(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`;
+        return String(value);
+    }
+    // Reusable copy button (same look/behavior as the order-detail copy buttons)
+    function copyBtnHTML(text) {
+        const t = String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<button onclick="navigator.clipboard.writeText('${t}');this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M5 13l4 4L19 7\\'></path></svg>';setTimeout(()=>this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z\\'></path></svg>',2000);" class="p-1.5 hover:bg-gray-100 rounded transition-colors text-gray-500 inline-flex items-center justify-center" style="min-width:28px;min-height:28px;"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button>`;
+    }
+    function parseFee(fee) {
+        if (!fee) return 0;
+        return parseFloat(fee.toString().replace(/[$,]/g, '')) || 0;
+    }
+    // Abbreviate a street address to the short form used for appraisal file names.
+    // e.g. "7654 12th Street North, Oakdale, MN 55128" -> "7654 12th St N"
+    // Only the trailing street-type suffix and directional words are shortened;
+    // name words in the middle (Lake, Ridge, etc.) are left alone.
+    function shortStreet(addr) {
+        if (!addr) return '';
+        // Drop a trailing ", USA" / " USA", then keep only the street line (before the first comma)
+        let s = String(addr).replace(/,?\s*USA\s*$/i, '').split(',')[0].trim().replace(/\s+/g, ' ');
+        if (!s) return '';
+        const dir = {
+            north:'N', south:'S', east:'E', west:'W',
+            northeast:'NE', northwest:'NW', southeast:'SE', southwest:'SW',
+            n:'N', s:'S', e:'E', w:'W', ne:'NE', nw:'NW', se:'SE', sw:'SW'
+        };
+        const suf = {
+            street:'St', st:'St', avenue:'Ave', ave:'Ave', boulevard:'Blvd', blvd:'Blvd',
+            drive:'Dr', dr:'Dr', road:'Rd', rd:'Rd', lane:'Ln', ln:'Ln', court:'Ct', ct:'Ct',
+            circle:'Cir', cir:'Cir', curve:'Crv', crv:'Crv', place:'Pl', pl:'Pl',
+            terrace:'Ter', trail:'Trl', trl:'Trl', parkway:'Pkwy', pkwy:'Pkwy',
+            highway:'Hwy', hwy:'Hwy', square:'Sq', crossing:'Xing', cove:'Cv', point:'Pt',
+            ridge:'Rdg', crescent:'Cres', heights:'Hts', junction:'Jct', landing:'Lndg',
+            loop:'Loop', plaza:'Plz', turnpike:'Tpke', path:'Path', pass:'Pass', run:'Run',
+            row:'Row', way:'Way', bend:'Bnd', bay:'Bay', gardens:'Gdns', grove:'Grv',
+            hollow:'Holw', manor:'Mnr', meadow:'Mdw', meadows:'Mdws', mount:'Mt',
+            overlook:'Ovlk', spur:'Spur', station:'Sta', summit:'Smt', valley:'Vly',
+            view:'Vw', walk:'Walk', alley:'Aly', causeway:'Cswy', center:'Ctr', cliff:'Clf',
+            creek:'Crk', estate:'Est', expressway:'Expy', ferry:'Fry', field:'Fld',
+            flat:'Flt', ford:'Frd', forest:'Frst', fork:'Frk', freeway:'Fwy',
+            gateway:'Gtwy', glen:'Gln', green:'Grn', harbor:'Hbr', hill:'Hl', hills:'Hls',
+            island:'Is', knoll:'Knl', lake:'Lk', lodge:'Ldg', mews:'Mews', mill:'Ml',
+            mission:'Msn', orchard:'Orch', pike:'Pike', plain:'Pln', port:'Prt',
+            prairie:'Pr', ranch:'Rnch', rapids:'Rpds', river:'Riv', shore:'Shr',
+            shores:'Shrs', spring:'Spg', springs:'Spgs', stream:'Strm', trace:'Trce',
+            track:'Trak', tunnel:'Tunl', village:'Vlg', vista:'Vis'
+        };
+        const key = w => w.replace(/\./g, '').toLowerCase();
+        const toks = s.split(' ');
+        // Trailing directional (e.g. "... Street North" -> pull off "North")
+        let trail = '';
+        if (toks.length >= 3 && dir[key(toks[toks.length-1])]) { trail = dir[key(toks.pop())]; }
+        // Street-type suffix is now the last token
+        if (toks.length >= 2) { const k = key(toks[toks.length-1]); if (suf[k]) toks[toks.length-1] = suf[k]; }
+        // Leading directional (house number first, then e.g. "West ...")
+        if (toks.length >= 3 && /^\d/.test(toks[0]) && dir[key(toks[1])]) { toks[1] = dir[key(toks[1])]; }
+        return toks.join(' ') + (trail ? ' ' + trail : '');
+    }
+    // ============================================================
+    // MSAL / ONEDRIVE
+    // ============================================================
+    const msalConfig = { auth: { clientId: '89d0320b-597e-4405-8ccd-7beeb8e25566', authority: 'https://login.microsoftonline.com/consumers', redirectUri: 'https://bgoheen.github.io/orders' }, cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false } };
+    const msalInstance = new msal.PublicClientApplication(msalConfig);
+    let msalAccount = null, accessToken = null;
+    const loginRequest = { scopes: ['Files.ReadWrite', 'User.Read', 'offline_access'] };
+
+    msalInstance.initialize().then(() => {
+        msalInstance.handleRedirectPromise().then(async response => {
+            if (response) {
+                msalAccount = response.account;
+                await getAccessToken();
+                await loadOrdersFromOneDrive();
+                if (window.opener && !window.opener.closed) { window.opener.postMessage('auth-complete', '*'); window.close(); }
+            } else {
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) { msalAccount = accounts[0]; await getAccessToken(); await loadOrdersFromOneDrive(); }
+            }
+            render();
+        }).catch(err => { console.error('MSAL error:', err); render(); });
+    });
+    window.addEventListener('message', (event) => { if (event.data === 'auth-complete') window.location.reload(); });
+    // Re-pull latest orders/consultations from OneDrive whenever the app regains focus
+    // (e.g. switching back from another app on mobile, or returning to this browser tab).
+    // Without this, a change made on one device never appears on another until a full
+    // reload + re-auth, since loadOrdersFromOneDrive() was previously only called at startup.
+    let lastVisibilitySync = 0;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && msalAccount) {
+            const now = Date.now();
+            if (now - lastVisibilitySync < 5000) return; // debounce rapid tab switches
+            lastVisibilitySync = now;
+            getAccessToken().then(() => loadOrdersFromOneDrive()).catch(e => console.error('Background sync error:', e));
+        }
+    });
+    async function refreshOrders() {
+        if (!msalAccount) return;
+        try { await getAccessToken(); await loadOrdersFromOneDrive(); }
+        catch(e) { console.error('Manual refresh error:', e); await showAlert('Failed to refresh from OneDrive', 'error'); }
+    }
+    async function signIn() { try { await msalInstance.loginRedirect(loginRequest); } catch(e) { console.error('Login error:', e); } }
+    async function getAccessToken() {
+        const request = { ...loginRequest, account: msalAccount };
+        try { const r = await msalInstance.acquireTokenSilent(request); accessToken = r.accessToken; return accessToken; }
+        catch(e) {
+            if (e instanceof msal.InteractionRequiredAuthError) {
+                // Popups don't work reliably in an installed iOS PWA (no popup window context),
+                // so fall back to a redirect instead. This navigates away and back; the existing
+                // handleRedirectPromise() flow at startup will pick up the session and reload data.
+                await msalInstance.acquireTokenRedirect(request);
+                return null; // unreachable in practice — acquireTokenRedirect navigates away
+            }
+            throw e;
+        }
+    }
+    // PUT a file via XMLHttpRequest so we can report upload progress (fetch can't).
+    // onProgress receives a fraction 0..1.
+    function xhrPut(url, file, token, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+            xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    if (onProgress) onProgress(1);
+                    try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(new Error('Bad response from OneDrive')); }
+                } else {
+                    reject(new Error('Upload failed: ' + xhr.status + ' ' + xhr.statusText));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Network error during upload'));
+            xhr.send(file);
+        });
+    }
+    async function uploadToOneDrive(file, orderId, onProgress) {
+        if (!accessToken) await getAccessToken();
+        const sanitized = file.name.replace(/[+]/g, '_');
+        const fileName = `${orderId}_${sanitized}`;
+        const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/${encodeURIComponent(fileName)}:/content`;
+        const r = await xhrPut(uploadUrl, file, accessToken, onProgress);
+        return { id: r.id, name: file.name, date: new Date().toLocaleDateString(), size: file.size, webUrl: r.webUrl, downloadUrl: r['@microsoft.graph.downloadUrl'] };
+    }
+    async function downloadFromOneDrive(fileId, fileName) {
+        if (!accessToken) await getAccessToken();
+        try {
+            // Pull the file bytes and save straight to Downloads (no browser window)
+            const r = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}/content`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+            if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName || 'download';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 1500);
+        } catch (e) {
+            await showAlert('Failed to download: ' + e.message, 'error');
+        }
+    }
+    async function deleteFromOneDrive(fileId) {
+        if (!accessToken) await getAccessToken();
+        await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${accessToken}` } });
+    }
+    async function loadOrdersFromOneDrive() {
+        if (!accessToken) return;
+        const fileUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/orders_data.json:/content`;
+        const response = await fetch(fileUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (response.ok) {
+            const jsonData = await response.json();
+            if (jsonData && jsonData.orders) {
+                data.orders = jsonData.orders;
+                if (jsonData.nextNum) data.nextNum = jsonData.nextNum;
+                else if (data.orders.length > 0) { const lastNum = data.orders[data.orders.length-1].num || '0'; const numPart = lastNum.includes('-') ? parseInt(lastNum.split('-')[1]) : parseInt(lastNum); data.nextNum = (numPart||0)+1; }
+                else data.nextNum = 21;
+                save(); render();
+            }
+        } else if (response.status === 404) { await showAlert('No orders file found in OneDrive', 'warning'); }
+    }
+    async function saveOrdersToOneDrive() {
+        if (!accessToken) return;
+        const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/AppraisalOrders/orders_data.json:/content`;
+        const jsonData = JSON.stringify({ orders: data.orders, nextNum: data.nextNum }, null, 2);
+        const response = await fetch(uploadUrl, { method: 'PUT', headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: jsonData });
+        if (!response.ok) {
+            if (response.status === 401) { try { await getAccessToken(); await fetch(uploadUrl, { method: 'PUT', headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: jsonData }); } catch(e) { await showAlert('Failed to save to OneDrive! Please reconnect.', 'error'); } }
+            else await showAlert('Failed to save to OneDrive! Error: ' + response.statusText, 'error');
+        }
+    }
+    // ============================================================
+    // DATA OBJECT
+    // ============================================================
+    const data = {
+        orders: [], selected: null, filter: 'Ordered', search: '', tab: 'Orders', showNew: false, edit: false, nextNum: 1000, mapView: 'pins',
+        // Consultations
+        consultations: [], consLoaded: false, consFilter: 'pending', selectedCons: null, showNewCons: false, editCons: false,
+        prefillOrder: null, convertingConsId: null
+    };
+
+    function save() {
+        localStorage.setItem('orders', JSON.stringify({ orders: data.orders, nextNum: data.nextNum }));
+        if (msalAccount) saveOrdersToOneDrive();
+    }
+    function load() {
+        const saved = localStorage.getItem('orders');
+        if (!saved) return;
+        try {
+            const parsed = JSON.parse(saved);
+            if (parsed.orders && Array.isArray(parsed.orders)) { data.orders = parsed.orders; data.nextNum = 22; }
+            else if (Array.isArray(parsed)) { data.orders = parsed; if (parsed.length > 0) { const lastNum = parsed[parsed.length-1].num||'0'; const numPart = lastNum.includes('-')?parseInt(lastNum.split('-')[1]):parseInt(lastNum); data.nextNum=(numPart||0)+1; } else data.nextNum=21; }
+            else if (typeof parsed === 'object') { data.orders = Object.values(parsed).filter(i => i&&i.id); if (data.orders.length>0) { const lastNum=data.orders[data.orders.length-1].num||'0'; const numPart=lastNum.includes('-')?parseInt(lastNum.split('-')[1]):parseInt(lastNum); data.nextNum=(numPart||0)+1; } else data.nextNum=21; }
+            data.orders = data.orders.map(order => {
+                if (order.stat && !order.status) { order.status = order.stat; delete order.stat; }
+                if (order.status) { const sm = {'COMPLETED':'Completed','ORDERED':'Ordered','CANCELLED':'Cancelled'}; if (sm[order.status]) order.status = sm[order.status]; }
+                if (order.name && !order.addr) order.addr = order.name;
+                if (order.num === '2026-2028') order.num = '2026-021';
+                if (order.status === 'Completed' && !order.completedDate) order.completedDate = '2026-01-15T12:00:00.000Z';
+                return order;
+            });
+            save();
+        } catch(e) { console.error('Error parsing localStorage:', e); }
+    }
+    function genNumber() {
+        const yr = new Date().getFullYear();
+        const existing = new Set();
+        data.orders.forEach(o => { if (o.num) { const p = o.num.split('-'); if (p.length===2 && p[0]===yr.toString()) existing.add(parseInt(p[1])); } });
+        let num = 1;
+        while (existing.has(num)) num++;
+        data.nextNum = num + 1;
+        return `${yr}-${num.toString().padStart(3,'0')}`;
+    }
+    function fixOrderNumberSequence() {
+        let highestNum = 0; const numberMap = new Map(); const yr = new Date().getFullYear();
+        data.orders.forEach(o => { if (o.num) { const p = o.num.split('-'); if (p.length===2 && p[0]===yr.toString()) { const n = parseInt(p[1]); if (n>highestNum) highestNum=n; if (!numberMap.has(o.num)) numberMap.set(o.num,[]); numberMap.get(o.num).push(o); } } });
+        let nextAvailable = highestNum + 1;
+        numberMap.forEach((orders, num) => { if (orders.length>1) { for (let i=1;i<orders.length;i++) { const newNum=`${yr}-${nextAvailable.toString().padStart(3,'0')}`; orders[i].num=newNum; nextAvailable++; } } });
+        data.nextNum = nextAvailable;
+        if (nextAvailable > highestNum+1) save();
+    }
+
+    const initialAccounts = msalInstance.getAllAccounts();
+    if (initialAccounts.length === 0) { load(); fixOrderNumberSequence(); if (data.orders.length > 0) render(); }
+    else console.log('OneDrive account detected, loading from OneDrive');
+    // Load consultations on startup so the pending badge shows without opening the tab first
+    if (SUPABASE_READY()) fetchConsultations();
+    // ============================================================
+    // MAP FUNCTIONS
+    // ============================================================
+    function initializeMap() {
+        const mapContainer = document.getElementById('map');
+        if (!mapContainer) return;
+        if (map) { map.remove(); map = null; markers = []; heatmap = null; }
+        map = L.map('map').setView([44.9537, -93.0900], 11);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 20, subdomains: 'abcd' }).addTo(map);
+        updateMap();
+    }
+    function updateMap() {
+        if (!map) return;
+        markers.forEach(m => map.removeLayer(m)); markers = [];
+        if (heatmap) { map.removeLayer(heatmap); heatmap = null; }
+        let ordersToShow;
+        if (data.tab === 'Map') ordersToShow = data.orders.filter(o => o.status==='Ordered' && o.lat && o.lng);
+        else ordersToShow = data.orders.filter(o => o.status==='Completed' && o.lat && o.lng);
+        if (ordersToShow.length === 0) return;
+        if (data.mapView === 'heatmap' && data.tab !== 'Map') {
+            const heatData = ordersToShow.map(o => [parseFloat(o.lat), parseFloat(o.lng), 1.0]);
+            const bounds = L.latLngBounds(heatData.map(d => [d[0],d[1]]));
+            map.setView(bounds.getCenter(), 9); map.invalidateSize();
+            setTimeout(() => { heatmap = L.heatLayer(heatData, { radius:30, blur:25, maxZoom:13, max:1.0, minOpacity:0.5 }).addTo(map); }, 300);
+        } else {
+            ordersToShow.forEach(order => {
+                const marker = L.marker([parseFloat(order.lat), parseFloat(order.lng)]).addTo(map);
+                const feeDisplay = order.fee ? (order.fee.toString().startsWith('$') ? order.fee : '$'+order.fee) : '$0';
+                marker.bindPopup(`<div style="min-width:200px;"><div style="font-weight:600;margin-bottom:4px;">${order.addr.replace(', USA','').replace(' USA','')}</div><div style="font-size:13px;color:#666;"><div>Order #${order.num||'N/A'}</div><div>${order.client||'N/A'}</div><div>Fee: ${feeDisplay}</div>${order.startDate?`<div>Insp: ${formatDate(order.startDate)}</div>`:''} ${order.dueDate?`<div>Due: ${formatDate(order.dueDate)}</div>`:''}</div></div>`);
+                markers.push(marker);
+            });
+            if (markers.length > 0) {
+                const bounds = L.latLngBounds(markers.map(m => m.getLatLng()));
+                if (data.tab === 'Metrics') map.setView(bounds.getCenter(), 9);
+                else map.fitBounds(bounds, { padding:[50,50], maxZoom:14, minZoom:11 });
+            }
+        }
+    }
+    function toggleMapView() {
+        data.mapView = data.mapView === 'pins' ? 'heatmap' : 'pins';
+        document.querySelectorAll('.map-toggle-btn').forEach(btn => {
+            const isActive = btn.dataset.view === data.mapView;
+            btn.className = 'map-toggle-btn px-4 py-2 rounded-md text-sm font-medium transition-all ' + (isActive ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900');
+        });
+        updateMap();
+    }
+    function toggleMapFullscreen() {
+        const container = document.getElementById('map-container');
+        const isFullscreen = container.classList.toggle('map-fullscreen');
+        document.querySelector('.fullscreen-icon-expand').classList.toggle('hidden', isFullscreen);
+        document.querySelector('.fullscreen-icon-collapse').classList.toggle('hidden', !isFullscreen);
+        setTimeout(() => { if (map) { map.invalidateSize(); updateMap(); } }, 300);
+    }
+
+    // ============================================================
+    // CONVERT CONSULTATION → ORDER
+    // ============================================================
+    function convertToOrder(cons) {
+        data.prefillOrder = {
+            client: 'Private',
+            poc: cons.name || '',
+            phone: cons.phone || '',
+            email: cons.email || '',
+            addr: cons.address || '',
+            desc: [cons.appraisal_type ? 'Appraisal type: ' + cons.appraisal_type : '', cons.notes || ''].filter(Boolean).join('\n')
+        };
+        data.convertingConsId = cons.id;
+        data.selectedCons = null;
+        data.showNew = true;
+        render();
+    }
+    // ============================================================
+    // RENDER — main
+    // ============================================================
+    function render() {
+        const filtered = data.orders.filter(o => {
+            const matchSearch = !data.search || (o.addr&&o.addr.toLowerCase().includes(data.search.toLowerCase())) || (o.client&&o.client.toLowerCase().includes(data.search.toLowerCase())) || (o.num&&o.num.includes(data.search)) || (o.borrower&&o.borrower.toLowerCase().includes(data.search.toLowerCase())) || (o.city&&o.city.toLowerCase().includes(data.search.toLowerCase())) || (o.state&&o.state.toLowerCase().includes(data.search.toLowerCase()));
+            if (data.search && matchSearch) return true;
+            if (!data.search) return o.status === data.filter;
+            return false;
+        }).sort((a,b) => {
+            if (a.status==='Completed' && b.status==='Completed') { const gn=o=>{if(!o.num)return 0;const p=o.num.split('-');return parseInt(p[p.length-1])||0;}; return gn(b)-gn(a); }
+            if (a.status==='Ordered' && b.status==='Ordered') { const da=a.dueDate?new Date(a.dueDate):new Date('2099-12-31'); const db=b.dueDate?new Date(b.dueDate):new Date('2099-12-31'); return da-db; }
+            return 0;
+        });
+        const ordered = data.orders.filter(o=>o.status==='Ordered').length;
+        const completed = data.orders.filter(o=>o.status==='Completed').length;
+        const cancelled = data.orders.filter(o=>o.status==='Cancelled').length;
+        const thisYear = new Date(); thisYear.setMonth(0,1); thisYear.setHours(0,0,0,0);
+        const thisYearOrders = data.orders.filter(o => { if(o.status!=='Completed')return false; const d=new Date(o.completedDate||o.created); return d>=thisYear; });
+        const thisYearRevenue = thisYearOrders.reduce((s,o)=>s+parseFee(o.fee),0);
+        const thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
+        const thisMonthOrders = data.orders.filter(o => { if(o.status!=='Completed')return false; const d=new Date(o.completedDate||o.created); return d>=thisMonth; });
+        const thisMonthRevenue = thisMonthOrders.filter(o=>o.status==='Completed').reduce((s,o)=>s+parseFee(o.fee),0);
+        const completedWithFees = data.orders.filter(o=>o.status==='Completed'&&o.fee&&parseFee(o.fee)>0);
+        const avgFee = completedWithFees.length>0 ? completedWithFees.reduce((s,o)=>s+parseFee(o.fee),0)/completedWithFees.length : 0;
+        const totalRevenue = completedWithFees.reduce((s,o)=>s+parseFee(o.fee),0);
+        // Consultations counts
+        const pendingCons = data.consultations.filter(c=>c.status==='pending').length;
+        const filteredCons = data.consultations.filter(c => c.status === data.consFilter);
+
+        document.getElementById('app').innerHTML = `
+        <div style="background-color:#111827;">
+            <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+                <!-- Desktop header (md and up): unchanged -->
+                <div class="hidden md:flex items-center gap-8">
+                    <img src="metrowide-logo.png" alt="Metrowide" class="h-8">
+                    <div class="flex items-center gap-2">
+                        ${['Orders','Consultations','Map','Metrics'].map(tab => {
+                            const icons = {
+                                Orders: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
+                                Consultations: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>',
+                                Map: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>',
+                                Metrics: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>'
+                            };
+                            const onclick = tab === 'Map' || tab === 'Metrics'
+                                ? `data.tab='${tab}'; render(); setTimeout(initializeMap,100);`
+                                : tab === 'Consultations'
+                                    ? `data.tab='Consultations'; if(!data.consLoaded) fetchConsultations(); else render();`
+                                    : `data.tab='Orders'; render();`;
+                            const badge = tab === 'Consultations' && pendingCons > 0
+                                ? `<span class="ml-1 inline-flex items-center justify-center text-xs font-bold rounded-full text-white" style="background-color:#FF3B30;min-width:18px;height:18px;padding:0 5px;line-height:1;">${pendingCons}</span>` : '';
+                            return `<button onclick="${onclick}" class="px-4 py-2 rounded-lg text-sm hdr-tab ${data.tab===tab?'hdr-tab-active font-semibold':'font-medium'}">
+                                <span class="flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[tab]}</svg>${tab}${badge}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                </div>
+                <div class="hidden md:flex items-center gap-4">
+                    ${msalAccount ? `<button onclick="refreshOrders()" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hdr-icon-btn" title="Tap to refresh from OneDrive"><div class="w-1.5 h-1.5 rounded-full" style="background-color:#34D399;"></div><span class="text-xs" style="color:#D1D5DB;">OneDrive</span></button>` : `<button onclick="signIn()" class="text-xs font-medium px-2.5 py-1.5 rounded-lg hdr-icon-btn">Connect OneDrive</button>`}
+                    ${data.tab === 'Consultations'
+                        ? `<button onclick="data.showNewCons=true; render();" class="px-4 py-2 rounded-lg accent-btn font-semibold text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Consultation</button>`
+                        : `<button onclick="data.showNew=true; render();" class="px-4 py-2 rounded-lg accent-btn font-semibold text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Order</button>`
+                    }
+                </div>
+                <!-- Mobile header (below md): Orders/Consultations + collapsed More menu -->
+                <div class="md:hidden flex items-center justify-between w-full">
+                    <div class="flex items-center gap-1">
+                        ${['Orders','Consultations'].map(tab => {
+                            const icons = {
+                                Orders: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
+                                Consultations: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>'
+                            };
+                            const onclick = tab === 'Consultations'
+                                ? `data.tab='Consultations'; if(!data.consLoaded) fetchConsultations(); else render();`
+                                : `data.tab='Orders'; render();`;
+                            const badge = tab === 'Consultations' && pendingCons > 0
+                                ? `<span class="ml-1 inline-flex items-center justify-center text-xs font-bold rounded-full text-white" style="background-color:#FF3B30;min-width:18px;height:18px;padding:0 5px;line-height:1;">${pendingCons}</span>` : '';
+                            return `<button onclick="${onclick}" class="px-3 py-2 rounded-lg text-sm hdr-tab ${data.tab===tab?'hdr-tab-active font-semibold':'font-medium'}">
+                                <span class="flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[tab]}</svg>${tab}${badge}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <div class="dropdown-container relative flex-shrink-0">
+                        <button onclick="toggleDropdown('mobile-more',event)" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+                        <div id="dropdown-mobile-more" class="dropdown-menu">
+                            <div class="dropdown-item" onclick="data.tab='Map'; render(); setTimeout(initializeMap,100);">Map</div>
+                            <div class="dropdown-item" onclick="data.tab='Metrics'; render(); setTimeout(initializeMap,100);">Metrics</div>
+                            <div class="dropdown-item" onclick="${data.tab==='Consultations'?`data.showNewCons=true; render();`:`data.showNew=true; render();`}">${data.tab==='Consultations'?'New Consultation':'New Order'}</div>
+                            ${msalAccount?`<div class="dropdown-item" onclick="refreshOrders()" style="color:#059669;">↻ Sync Now</div>`:`<div class="dropdown-item" onclick="signIn()">Connect OneDrive</div>`}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="max-w-7xl mx-auto p-6">
+            ${data.tab === 'Consultations' ? renderConsultationsView(filteredCons, pendingCons)
+            : data.tab === 'Orders' ? renderOrdersView(filtered, ordered, completed, cancelled)
+            : data.tab === 'Map' ? renderMapView()
+            : renderMetricsView(ordered, completed, thisMonthOrders, thisMonthRevenue, thisYearRevenue, avgFee, totalRevenue)}
+        </div>
+        ${data.selectedCons ? renderConsultationModal() : ''}
+        ${data.showNewCons ? renderNewConsultationModal() : ''}
+        ${data.selected ? renderDetailModal() : ''}
+        ${data.showNew ? renderNewOrderModal() : ''}
+        `;
+
+        if (data.tab === 'Metrics') setTimeout(() => renderCharts(), 100);
+        if (data.showNew) {
+            setTimeout(() => {
+                initAddressAutocomplete('new-addr', 'newOrderLocation');
+                if (data.prefillOrder) {
+                    const p = data.prefillOrder;
+                    if (p.poc) { const el = document.getElementById('new-poc'); if(el) el.value = p.poc; }
+                    if (p.phone) { const el = document.getElementById('new-phone'); if(el) el.value = p.phone; }
+                    if (p.email) { const el = document.getElementById('new-email'); if(el) el.value = p.email; }
+                    if (p.addr) { const el = document.getElementById('new-addr'); if(el) el.value = p.addr; }
+                    if (p.desc) { const el = document.getElementById('new-desc'); if(el) el.value = p.desc; }
+                }
+            }, 100);
+        }
+        if (data.edit && data.selected) setTimeout(() => initAddressAutocomplete('edit-addr', 'editOrderLocation'), 100);
+    }
+
+    function initAddressAutocomplete(inputId, globalVar) {
+        const input = document.getElementById(inputId);
+        if (!input || input.dataset.autocompleteInitialized) return;
+        const ac = new google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: 'us' } });
+        ac.addListener('place_changed', () => {
+            const place = ac.getPlace();
+            if (!place.geometry) return;
+            let streetNumber='',route='',city='',state='',zip='';
+            place.address_components.forEach(c => {
+                if (c.types.includes('street_number')) streetNumber=c.long_name;
+                if (c.types.includes('route')) route=c.long_name;
+                if (c.types.includes('locality')) city=c.long_name;
+                if (c.types.includes('administrative_area_level_1')) state=c.short_name;
+                if (c.types.includes('postal_code')) zip=c.long_name;
+            });
+            window[globalVar] = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), formattedAddress: place.formatted_address, addr: streetNumber&&route ? `${streetNumber} ${route}` : place.formatted_address.split(',')[0], city, state, zip };
+        });
+        input.dataset.autocompleteInitialized = 'true';
+    }
+    // ============================================================
+    // CONSULTATIONS VIEWS
+    // ============================================================
+    const APPRAISAL_TYPES = ['Divorce', 'Estate', 'FSBO', 'Pre-listing', 'Date of Death', 'Bankruptcy', 'Refinance', 'Other'];
+
+    function renderConsultationsView(filteredCons, pendingCons) {
+        const counts = { pending: data.consultations.filter(c=>c.status==='pending').length, completed: data.consultations.filter(c=>c.status==='completed').length, converted: data.consultations.filter(c=>c.status==='converted').length };
+        const filterColors = { pending: ['#EEF2FF','#3730A3'], completed: ['#D1FAE5','#065F46'], converted: ['#D1FAE5','#065F46'] };
+        return `
+        <div class="mb-6">
+            <div class="flex items-center gap-4 mb-6">
+                <div class="seg">
+                    ${['pending','completed','converted'].map(s => {
+                        const label = s.charAt(0).toUpperCase()+s.slice(1);
+                        return `<button onclick="data.consFilter='${s}'; render();" class="seg-btn ${data.consFilter===s?'seg-btn-active':''}">
+                            ${label}<span class="seg-count">${counts[s]}</span>
+                        </button>`;
+                    }).join('')}
+                </div>
+                ${!data.consLoaded ? `<span class="text-sm text-gray-400 ml-auto">Loading...</span>` : ''}
+                ${!SUPABASE_READY() ? `<div class="ml-auto px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">⚠️ Supabase not configured — <a href="#" class="underline" onclick="showAlert('See setup-instructions.md')">see setup guide</a></div>` : ''}
+            </div>
+            <div class="${filteredCons.length === 0 ? '' : 'list-shell'}">
+                ${filteredCons.length === 0 ? '' : `<div class="list-head cons-head hidden md:grid"><span>Name</span><span>Type</span><span>Address</span><span>Phone</span><span>Email</span><span>Booked</span><span></span></div>`}
+                ${filteredCons.length === 0 ? `
+                    <div class="text-center py-16">
+                        <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        <p class="text-gray-500 text-lg">No ${data.consFilter} consultations</p>
+                        ${data.consFilter==='pending' ? '<p class="text-sm text-gray-400 mt-1">New cal.com bookings will appear here automatically once setup is complete</p>' : ''}
+                    </div>
+                ` : filteredCons.map(c => `
+                    <div class="order-card list-row bg-white px-4 border border-gray-200 status-strip-${c.status} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selectedCons=${JSON.stringify(c).replace(/"/g,'&quot;')};render();}">
+                        <div class="row-grid cons-grid text-sm">
+                            <div class="min-w-0 py-3">
+                                <div class="font-semibold text-gray-900 truncate" style="font-size:14.5px;letter-spacing:-0.01em;">${c.name || '—'}</div>
+                            </div>
+                            <div>${c.appraisal_type ? `<span class="cons-type-badge">${c.appraisal_type}</span>` : ''}</div>
+                            <div class="text-gray-600 truncate" style="font-size:13px;">${c.address ? c.address.replace(', USA','') : '<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-600 mono" style="font-size:12.5px;">${c.phone ? formatUSPhone(c.phone) : '<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-500 truncate" style="font-size:13px;">${c.email || '<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-500" style="font-size:13px;">${c.consultation_date ? formatConsDate(c.consultation_date) : '<span class="text-gray-300">—</span>'}</div>
+                            <div class="dropdown-container relative flex-shrink-0">
+                                <button onclick="toggleDropdown('cons-${c.id}',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                                    <svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" transform="rotate(90 12 12)"/></svg>
+                                </button>
+                                <div id="dropdown-cons-${c.id}" class="dropdown-menu">
+                                    ${c.status === 'pending' ? `<div class="dropdown-item" onclick="data.selectedCons=${JSON.stringify(c).replace(/"/g,'&quot;')};render();">View Details</div><div class="dropdown-item" onclick="convertToOrder(${JSON.stringify(c).replace(/"/g,'&quot;')})">Convert to Order</div><div class="dropdown-item" onclick="markConsCompleted('${c.id}')">Mark Completed</div>` : ''}
+                                    ${c.status === 'completed' ? `<div class="dropdown-item" onclick="convertToOrder(${JSON.stringify(c).replace(/"/g,'&quot;')})">Convert to Order</div>` : ''}
+                                    <div class="dropdown-item danger" onclick="confirmDeleteCons('${c.id}')">Delete</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+    }
+
+    function renderConsultationModal() {
+        const c = data.selectedCons;
+        if (!c) return '';
+        return `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this){data.selectedCons=null;render();}">
+            <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
+                <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-xl font-semibold text-gray-900">Consultation</h2>
+                        <span class="status-badge status-${c.status}">${c.status.charAt(0).toUpperCase()+c.status.slice(1)}</span>
+                        ${c.appraisal_type ? `<span class="cons-type-badge">${c.appraisal_type}</span>` : ''}
+                    </div>
+                    <button onclick="data.selectedCons=null;render();" class="p-2 hover:bg-gray-100 rounded-lg">
+                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="p-6 space-y-4">
+                    ${c.consultation_date ? `<div><span class="text-xs text-gray-500 uppercase tracking-wide">Consultation Date</span><p class="text-sm font-medium text-gray-900 mt-0.5">${formatConsDate(c.consultation_date)}</p></div>` : ''}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><span class="text-xs text-gray-500 uppercase tracking-wide">Name</span><p class="text-sm text-gray-900 mt-0.5 font-medium">${c.name || '—'}</p></div>
+                        <div><span class="text-xs text-gray-500 uppercase tracking-wide">Phone</span><div class="flex items-center gap-1 mt-0.5"><p class="text-sm text-gray-900">${c.phone ? formatUSPhone(c.phone) : '—'}</p>${c.phone ? copyBtnHTML(formatUSPhone(c.phone)) : ''}</div></div>
+                        <div class="col-span-2"><span class="text-xs text-gray-500 uppercase tracking-wide">Email</span><p class="text-sm text-gray-900 mt-0.5">${c.email || '—'}</p></div>
+                        <div class="col-span-2"><span class="text-xs text-gray-500 uppercase tracking-wide">Property Address</span><p class="text-sm text-gray-900 mt-0.5">${c.address || '—'}</p></div>
+                    </div>
+                    ${c.notes ? `<div class="pt-2 border-t border-gray-100"><span class="text-xs text-gray-500 uppercase tracking-wide">Notes</span><p class="text-sm text-gray-700 mt-0.5 whitespace-pre-wrap">${c.notes}</p></div>` : ''}
+                    <div class="pt-4 border-t border-gray-200 flex flex-col gap-3">
+                        ${c.status !== 'converted' ? `<button onclick="convertToOrder(${JSON.stringify(c).replace(/"/g,'&quot;')})" class="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium">Convert to Order →</button>` : '<p class="text-sm text-center text-green-700 font-medium">✓ Converted to order</p>'}
+                        ${c.status === 'pending' ? `<button onclick="markConsCompleted('${c.id}')" class="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">Mark Completed (no order)</button>` : ''}
+                        <button onclick="confirmDeleteCons('${c.id}')" class="w-full px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function renderNewConsultationModal() {
+        return `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)discardNewCons();">
+            <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
+                <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+                    <h2 class="text-xl font-semibold text-gray-900">New Consultation</h2>
+                    <button onclick="data.showNewCons=false;render();" class="p-2 hover:bg-gray-100 rounded-lg"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">Name *</label><input type="text" id="cons-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="tel" id="cons-phone" oninput="this.value=formatPhone(this.value);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="cons-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+                        <div class="col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">Property Address</label><input type="text" id="cons-address" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Appraisal Type</label>
+                            <select id="cons-type" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="">Select type...</option>
+                                ${APPRAISAL_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Consultation Date</label><input type="datetime-local" id="cons-date" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"></div>
+                        <div class="col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">Notes</label><textarea id="cons-notes" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea></div>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-2 border-t border-gray-200">
+                        <button onclick="data.showNewCons=false;render();" class="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Cancel</button>
+                        <button onclick="createConsultation()" class="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">Save Consultation</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    async function createConsultation() {
+        const name = document.getElementById('cons-name').value.trim();
+        if (!name) { await showAlert('Name is required', 'warning'); return; }
+        const cons = {
+            name,
+            phone: document.getElementById('cons-phone').value,
+            email: document.getElementById('cons-email').value,
+            address: document.getElementById('cons-address').value,
+            appraisal_type: document.getElementById('cons-type').value,
+            consultation_date: document.getElementById('cons-date').value ? new Date(document.getElementById('cons-date').value).toISOString() : null,
+            notes: document.getElementById('cons-notes').value,
+            status: 'pending'
+        };
+        try {
+            if (SUPABASE_READY()) { const saved = await insertConsultation(cons); data.consultations.unshift(saved); }
+            else { cons.id = Date.now().toString(); cons.created_at = new Date().toISOString(); data.consultations.unshift(cons); }
+            data.showNewCons = false; data.consFilter = 'pending'; render();
+        } catch(e) { await showAlert('Error saving consultation: ' + e.message, 'error'); }
+    }
+
+    async function markConsCompleted(id) {
+        try {
+            if (SUPABASE_READY()) await patchConsultation(id, { status: 'completed' });
+            const c = data.consultations.find(c=>c.id===id); if (c) c.status = 'completed';
+            data.selectedCons = null; render();
+        } catch(e) { await showAlert('Error: ' + e.message, 'error'); }
+    }
+
+    async function confirmDeleteCons(id) {
+        if (!await showConfirm('Delete this consultation? This cannot be undone.', { confirmText: 'Delete', danger: true })) return;
+        try {
+            if (SUPABASE_READY()) await eraseConsultation(id);
+            data.consultations = data.consultations.filter(c=>c.id!==id);
+            data.selectedCons = null; render();
+        } catch(e) { await showAlert('Error: ' + e.message, 'error'); }
+    }
+    // ============================================================
+    // ORDERS VIEW
+    // ============================================================
+    function renderOrdersView(filtered, ordered, completed, cancelled) {
+        return `
+        <div class="mb-6">
+            <div class="flex items-center gap-4 mb-6">
+                <div class="seg w-full md:w-auto">
+                    ${['Ordered','Completed','Cancelled'].map(status => {
+                        const count = status==='Ordered'?ordered:status==='Completed'?completed:cancelled;
+                        return `<button onclick="data.filter='${status}';render();" class="flex-1 md:flex-initial seg-btn ${data.filter===status?'seg-btn-active':''}">
+                            ${status}<span class="seg-count">${count}</span>
+                        </button>`;
+                    }).join('')}
+                </div>
+                <div class="hidden md:flex flex-1 max-w-md relative ml-auto">
+                    <svg class="w-4 h-4 absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" id="search-input" placeholder="Search address, client, order #" value="${data.search}" oninput="handleSearch(this.value)" style="background-color:#fff;" class="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent text-sm">
+                    ${data.search ? `<button onclick="clearSearch()" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>` : ''}
+                </div>
+            </div>
+            <div class="${filtered.length===0?'':'list-shell'}">
+                ${filtered.length===0?'':`<div class="list-head hidden md:grid">
+                    <span>Property</span><span>Client</span><span>Order</span><span style="text-align:right;">Fee</span><span>Due</span><span>Inspection</span><span></span><span></span>
+                </div>`}
+                ${filtered.map(o => {
+                    const isOverdue = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
+                    const dueSoon = !isOverdue && o.status==='Ordered' && o.dueDate && (parseLocalDate(o.dueDate) - new Date()) < 3*86400000;
+                    const borderClass = isOverdue ? 'overdue-border' : `status-strip-${o.status.toLowerCase()}`;
+                    const makeDropdownHTML = (suffix) => `<div class="dropdown-container relative flex-shrink-0">
+                                <button onclick="toggleDropdown('${o.id}${suffix}',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" transform="rotate(90 12 12)"/></svg></button>
+                                <div id="dropdown-${o.id}${suffix}" class="dropdown-menu">
+                                    <div class="dropdown-item" onclick="data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=true;render();">Edit Order</div>
+                                    ${o.status!=='Completed'?`<div class="dropdown-item" onclick="updateStatus('${o.id}','Completed')">Mark Completed</div>`:''}
+                                    ${o.status!=='Cancelled'?`<div class="dropdown-item" onclick="updateStatus('${o.id}','Cancelled')">Mark Cancelled</div>`:''}
+                                    <div class="dropdown-item danger" onclick="confirmDelete('${o.id}')">Delete</div>
+                                </div>
+                            </div>`;
+                    const dropdownHTML = makeDropdownHTML('-d');
+                    const dropdownHTMLMobile = makeDropdownHTML('-m');
+                    return `<div class="order-card list-row bg-white px-4 border border-gray-200 ${borderClass} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=false;render();}">
+                        <!-- Desktop row (md and up) -->
+                        <div class="hidden md:grid row-grid text-sm">
+                            <div class="min-w-0 py-3"><div class="font-semibold text-gray-900 truncate" style="font-size:14.5px;letter-spacing:-0.01em;">${o.addr.replace(', USA','').replace(' USA','')}${o.city?`<span style="font-weight:450;color:#9CA3AF;">, ${o.city}</span>`:''}</div></div>
+                            <div class="text-gray-600 truncate" style="font-size:13.5px;">${o.client||'—'}</div>
+                            <div class="mono text-gray-500" style="font-size:12.5px;">${o.num||'—'}</div>
+                            <div class="mono font-semibold text-gray-900" style="font-size:13.5px;text-align:right;">${o.fee?(o.fee.toString().startsWith('$')?o.fee:'$'+o.fee):'—'}</div>
+                            <div>${o.dueDate?`<span class="date-chip ${isOverdue?'date-chip-late':(dueSoon?'date-chip-warn':'')}">${formatDate(o.dueDate)}</span>`:'<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-600" style="font-size:13px;">${o.startDate?`${formatDate(o.startDate)}${o.startTime?` · ${formatTime12(o.startTime)}`:''}` : '<span class="text-gray-300">—</span>'}</div>
+                            <div>${o.fha?`<span class="text-xs font-semibold px-1.5 py-0.5 rounded" style="background:#EFF6FF;color:#1D4ED8;">FHA</span>`:''}</div>
+                            ${dropdownHTML}
+                        </div>
+                        <!-- Mobile card (below md) -->
+                        <div class="md:hidden py-3">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="font-semibold text-gray-900 leading-snug truncate">${o.addr.replace(', USA','').replace(' USA','')}</div>
+                                    ${o.city?`<div class="text-sm text-gray-500 leading-snug truncate">${o.city}${o.state?`, ${o.state}`:''}</div>`:''}
+                                </div>
+                                ${dropdownHTMLMobile}
+                            </div>
+                            <div class="flex items-center gap-1.5 mt-1 text-xs text-gray-500">
+                                ${o.client?`<span class="truncate">${o.client}</span>`:''}
+                                ${o.fha?`<span class="ml-auto flex-shrink-0 text-xs font-semibold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}
+                            </div>
+                            <div class="flex items-center gap-3 mt-1.5 text-sm text-gray-700">
+                                ${o.dueDate?`<span class="inline-flex items-center gap-1 ${isOverdue?'overdue-text':''}"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}</span>`:''}
+                                ${o.startDate?`<span class="inline-flex items-center gap-1"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${formatDate(o.startDate)}${o.startTime?', '+formatTime12(o.startTime):''}</span>`:''}
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+            ${filtered.length===0?`<div class="text-center py-16"><svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><p class="text-gray-500 text-lg">No ${data.filter.toLowerCase()} orders</p></div>`:''}
+        </div>`;
+    }
+
+    function renderMapView() {
+        return `<div class="space-y-6"><div id="map-container" class="bg-white rounded-xl border border-gray-200 overflow-hidden" style="height:calc(100vh - 180px);">
+            <div id="map" style="height:100%;position:relative;">
+                <button onclick="toggleMapFullscreen();" class="absolute top-2 right-2 z-10 bg-white p-2 rounded-lg shadow-md hover:bg-gray-50 transition-colors" style="z-index:1000;">
+                    <svg class="fullscreen-icon-expand w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    <svg class="fullscreen-icon-collapse w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+        </div></div>`;
+    }
+
+    function renderMetricsView(ordered, completed, thisMonthOrders, thisMonthRevenue, thisYearRevenue, avgFee, totalRevenue) {
+        const completedWithLoc = data.orders.filter(o=>o.status==='Completed'&&o.lat&&o.lng).length;
+        return `<div class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="bg-white rounded-xl p-6 border border-gray-200"><div class="flex items-center justify-between mb-2"><span class="text-sm font-medium text-gray-500">Active Orders</span><svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div class="text-3xl font-semibold text-gray-900">${ordered}</div></div>
+                <div class="bg-white rounded-xl p-6 border border-gray-200"><div class="flex items-center justify-between mb-2"><span class="text-sm font-medium text-gray-500">This Month</span><svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg></div><div class="text-3xl font-semibold text-gray-900">${thisMonthOrders.filter(o=>o.status==='Completed').length}</div><div class="text-xs text-gray-500 mt-1">$${thisMonthRevenue.toLocaleString()} revenue</div></div>
+                <div class="bg-white rounded-xl p-6 border border-gray-200"><div class="flex items-center justify-between mb-2"><span class="text-sm font-medium text-gray-500">Total Completed</span><svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div class="text-3xl font-semibold text-gray-900">${completed}</div><div class="text-xs text-gray-500 mt-1">$${thisYearRevenue.toLocaleString()} this year</div></div>
+                <div class="bg-white rounded-xl p-6 border border-gray-200"><div class="flex items-center justify-between mb-2"><span class="text-sm font-medium text-gray-500">Avg Fee</span><svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div class="text-3xl font-semibold text-gray-900">$${Math.round(avgFee).toLocaleString()}</div><div class="text-xs text-gray-500 mt-1">$${totalRevenue.toLocaleString()} total</div></div>
+            </div>
+            <div id="map-container" class="bg-white rounded-xl border border-gray-200 relative">
+                <div class="map-header flex items-center justify-between p-4">
+                    <div><h2 class="text-lg font-semibold text-gray-900">Completed Appraisals Map</h2><p class="text-sm text-gray-500">${completedWithLoc} location${completedWithLoc!==1?'s':''}</p></div>
+                    <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                        <button data-view="pins" onclick="if(data.mapView!=='pins')toggleMapView();" class="map-toggle-btn px-4 py-2 rounded-md text-sm font-medium transition-all ${data.mapView==='pins'?'bg-white text-gray-900 shadow-sm':'text-gray-600 hover:text-gray-900'}"><span class="flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Pins</span></button>
+                        <button data-view="heatmap" onclick="if(data.mapView!=='heatmap')toggleMapView();" class="map-toggle-btn px-4 py-2 rounded-md text-sm font-medium transition-all ${data.mapView==='heatmap'?'bg-white text-gray-900 shadow-sm':'text-gray-600 hover:text-gray-900'}"><span class="flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>Heatmap</span></button>
+                    </div>
+                </div>
+                <div id="map" style="height:400px;position:relative;">
+                    <button onclick="toggleMapFullscreen();" class="absolute top-2 right-2 z-10 bg-white p-2 rounded-lg shadow-md hover:bg-gray-50 transition-colors border border-gray-300" title="Toggle fullscreen" style="z-index:1000;">
+                        <svg class="w-5 h-5 fullscreen-icon-expand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5M20 8V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m16 10v-4m0 4h-4m4 0l-5-5"/></svg>
+                        <svg class="w-5 h-5 fullscreen-icon-collapse hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5M15 15l5.25 5.25"/></svg>
+                    </button>
+                </div>
+                ${completedWithLoc===0?`<div class="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90 rounded-xl"><div class="text-center"><svg class="w-16 h-16 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg><p class="text-gray-500">No completed orders with location data</p></div></div>`:''}
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl p-6 border border-gray-200"><h3 class="text-lg font-semibold text-gray-900 mb-4">Revenue (This Year)</h3><canvas id="revenueChart" style="max-height:300px;"></canvas></div>
+                <div class="bg-white rounded-xl p-6 border border-gray-200"><h3 class="text-lg font-semibold text-gray-900 mb-4">Top Clients</h3><canvas id="clientsChart" style="max-height:300px;"></canvas></div>
+            </div>
+        </div>`;
+    }
+    // ============================================================
+    // CHARTS
+    // ============================================================
+    function renderCharts() {
+        const revenueCtx = document.getElementById('revenueChart');
+        if (revenueCtx) {
+            const months = [], revenue = [], now = new Date(), yr = now.getFullYear();
+            const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            for (let i=0;i<12;i++) { months.push(names[i]); revenue.push(data.orders.filter(o=>{ if(o.status!=='Completed')return false; const d=new Date(o.completedDate||o.created); return d.getMonth()===i&&d.getFullYear()===yr; }).reduce((s,o)=>s+parseFee(o.fee),0)); }
+            new Chart(revenueCtx, { type:'line', data:{ labels:months, datasets:[{ label:'Revenue', data:revenue, borderColor:'#111827', backgroundColor:'rgba(17,24,39,0.1)', borderWidth:2, tension:0.4, fill:true }] }, options:{ responsive:true, maintainAspectRatio:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, ticks:{ callback: v=>'$'+v.toLocaleString() } } } } });
+        }
+        const clientsCtx = document.getElementById('clientsChart');
+        if (clientsCtx) {
+            const cc = {};
+            data.orders.filter(o=>o.status==='Completed'&&o.client).forEach(o=>{ cc[o.client]=(cc[o.client]||0)+1; });
+            const sorted = Object.entries(cc).sort((a,b)=>b[1]===a[1]?a[0].localeCompare(b[0]):b[1]-a[1]).slice(0,5);
+            new Chart(clientsCtx, { type:'bar', data:{ labels:sorted.map(c=>c[0]), datasets:[{ label:'Orders', data:sorted.map(c=>c[1]), backgroundColor:'#111827', borderRadius:6 }] }, options:{ responsive:true, maintainAspectRatio:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true,ticks:{stepSize:1}}} } });
+        }
+    }
+
+    // ============================================================
+    // ORDER DETAIL MODAL
+    // ============================================================
+    // Click-to-copy: any element with data-copy copies its value and flashes a check
+    function copyField(el) {
+        const v = el.getAttribute('data-copy') || '';
+        try { navigator.clipboard.writeText(v); } catch (e) {}
+        const g = el.querySelector('[data-glyph]');
+        if (!g || g.dataset.busy) return;
+        g.dataset.busy = '1';
+        const prev = g.textContent, prevColor = g.style.color;
+        g.textContent = '✓'; g.style.color = '#10B981';
+        setTimeout(() => { g.textContent = prev; g.style.color = prevColor; delete g.dataset.busy; }, 1200);
+    }
+    function renderDetailModal() {
+        const o = data.selected;
+        if (!o) return '';
+        const street = (o.addr||'').replace(', USA','').replace(' USA','');
+        const locality = `${o.city||''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`.replace(/^, /,'');
+        const fullAddrHdr = `${street}${locality?`, ${locality}`:''}`;
+        const statusDot = { ordered:'#F59E0B', completed:'#34D399', cancelled:'#9CA3AF' }[o.status.toLowerCase()] || '#9CA3AF';
+        const statusTint = { ordered:'rgba(245,158,11,0.16)', completed:'rgba(52,211,153,0.16)', cancelled:'rgba(156,163,175,0.18)' }[o.status.toLowerCase()] || 'rgba(156,163,175,0.18)';
+        const statusText = { ordered:'#FCD34D', completed:'#6EE7B7', cancelled:'#D1D5DB' }[o.status.toLowerCase()] || '#D1D5DB';
+        return `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)closeDetailModal();">
+            <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
+                <div class="sticky top-0 z-10 px-6 pt-5 pb-5 flex items-start justify-between gap-4 rounded-t-2xl" style="background-color:#111827;">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 mb-2">
+                            ${o.num?`<span class="mono copy-dark inline-flex items-center gap-1.5" data-copy="${String(o.num).replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="font-size:12px;letter-spacing:0.06em;color:#9CA3AF;padding:2px 6px;margin-left:-6px;">${o.num}<span data-glyph style="font-size:11px;opacity:0.55;">⧉</span></span>`:''}
+                            <span class="inline-flex items-center gap-1.5" style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;background:${statusTint};color:${statusText};padding:4px 9px;border-radius:999px;"><span style="width:6px;height:6px;border-radius:50%;background:${statusDot};"></span>${o.status}</span>
+                        </div>
+                        <h2 class="copy-dark inline-flex items-baseline gap-2" data-copy="${fullAddrHdr.replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="margin:0 0 0 -8px;padding:2px 8px;font-size:23px;line-height:1.2;font-weight:650;letter-spacing:-0.02em;color:#fff;">${street}<span data-glyph style="font-size:14px;color:#9CA3AF;">⧉</span></h2>
+                        ${locality?`<p style="margin:4px 0 0;font-size:14px;color:#9CA3AF;">${locality}</p>`:''}
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        ${!data.edit?`<button onclick="data.edit=true;render();" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>`:''}
+                        <button onclick="data.selected=null;data.edit=false;render();" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    ${data.edit ? renderEditForm(o) : renderViewMode(o)}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function renderEditForm(o) {
+        const editClients = [...new Set([...data.orders.map(x=>x.client).filter(Boolean), 'Private', o.client].filter(Boolean))].sort();
+        return `<div class="space-y-6">
+            <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Property Information</h3>
+                <div class="space-y-4">
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Address</label><input type="text" id="edit-addr" value="${o.addr.replace(', USA','').replace(' USA','')}" placeholder="Start typing address..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Fee</label><input type="text" inputmode="decimal" id="edit-fee" value="${parseFee(o.fee)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                </div>
+            </div>
+            <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Client Information</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Client</label>
+                        <select id="edit-client" onchange="if(this.value==='__new__')addNewClient(this);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900">
+                            <option value="">Select a client...</option>
+                            ${editClients.map(c=>`<option value="${c}" ${c===o.client?'selected':''}>${c}</option>`).join('')}
+                            <option value="__new__">+ Add New Client</option>
+                        </select>
+                    </div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Borrower</label><input type="text" id="edit-borrower" value="${o.borrower||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">POC</label><input type="text" id="edit-poc" value="${o.poc||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="tel" id="edit-phone" value="${o.phone||''}" oninput="this.value=formatPhone(this.value);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="edit-email" value="${o.email||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Loan #</label><input type="text" id="edit-loan" value="${o.loan||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div class="col-span-2 flex items-center gap-6">
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="edit-fha" ${o.fha?'checked':''} class="w-4 h-4 text-gray-900 border-gray-300 rounded"><span class="text-sm font-medium text-gray-700">FHA</span></label>
+                        <div class="flex-1"><label class="block text-sm font-medium text-gray-700 mb-1">Status</label><select id="edit-status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"><option value="Ordered" ${o.status==='Ordered'?'selected':''}>Ordered</option><option value="Completed" ${o.status==='Completed'?'selected':''}>Completed</option><option value="Cancelled" ${o.status==='Cancelled'?'selected':''}>Cancelled</option></select></div>
+                    </div>
+                </div>
+            </div>
+            <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Schedule</h3>
+                <div class="grid grid-cols-[0.9fr,auto,0.9fr] gap-4">
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Inspection Date</label><input type="date" id="edit-startDate" value="${o.startDate||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div class="w-40"><label class="block text-sm font-medium text-gray-700 mb-1">Time</label><input type="time" id="edit-startTime" value="${o.startTime||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label><input type="date" id="edit-dueDate" value="${o.dueDate||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                </div>
+            </div>
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Notes</label><textarea id="edit-desc" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900">${o.desc||''}</textarea></div>
+            <div class="flex items-center justify-between pt-4 border-t border-gray-200">
+                <button onclick="deleteOrder('${o.id}')" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium">Delete Order</button>
+                <div class="flex gap-3">
+                    <button onclick="data.edit=false;render();" class="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Cancel</button>
+                    <button onclick="saveEdit('${o.id}');" class="px-5 py-2 rounded-lg accent-btn font-semibold">Save Changes</button>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function renderViewMode(o) {
+        const copyBtn = (text, label) => `<button onclick="navigator.clipboard.writeText('${text}');this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M5 13l4 4L19 7\\'></path></svg>';setTimeout(()=>this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z\\'></path></svg>',2000);" class="p-1.5 hover:bg-gray-100 rounded transition-colors text-gray-500 inline-flex items-center justify-center" style="min-width:28px;min-height:28px;"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button>`;
+        const fullAddr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
+        const secBtn = 'act-pill';
+        // Key-facts strip (only cells that have data)
+        const stats = [];
+        if (o.fee) stats.push(['Fee', `${o.fee.toString().startsWith('$')?o.fee:'$'+o.fee}`]);
+        if (o.startDate||o.startTime) stats.push(['Inspection', `${o.startDate?formatDate(o.startDate):''}${(o.startDate&&o.startTime)?' · ':''}${o.startTime?formatTime12(o.startTime):''}`]);
+        if (o.dueDate) stats.push(['Due', formatDate(o.dueDate)]);
+        // Contact fields (only present ones), with copy where useful
+        const contacts = [];
+        if (o.client) contacts.push(['Client', o.client, null]);
+        if (o.borrower) contacts.push(['Borrower', o.borrower, 'borrower']);
+        if (o.poc) contacts.push(['POC', o.poc, 'poc']);
+        if (o.phone) contacts.push(['Phone', o.phone, 'phone']);
+        if (o.email) contacts.push(['Email', o.email, 'email']);
+        if (o.loan) contacts.push(['Loan #', o.loan, 'loan#']);
+        const isLate = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
+        const isSoon = !isLate && o.status==='Ordered' && o.dueDate && (parseLocalDate(o.dueDate) - new Date()) < 3*86400000;
+        return `<div class="space-y-5">
+            ${stats.length?`<div class="ribbon -mx-6 -mt-6 mb-1" style="grid-template-columns:repeat(${stats.length},minmax(0,1fr));">
+                ${stats.map(([label,val])=>{
+                    const isDue = label==='Due';
+                    const bg = isDue&&isLate ? 'background:#FEF2F2;' : (isDue&&isSoon ? 'background:#FFFBEB;' : '');
+                    const lc = isDue&&isLate ? 'color:#B91C1C;' : (isDue&&isSoon ? 'color:#B45309;' : '');
+                    const vc = isDue&&isLate ? 'color:#991B1B;' : (isDue&&isSoon ? 'color:#92400E;' : '');
+                    return `<div style="${bg}"><p class="ribbon-label" style="${lc}">${label}</p><p class="ribbon-val" style="${vc}">${val}</p></div>`;
+                }).join('')}
+            </div>`:''}
+            ${contacts.length?`<div class="grid grid-cols-2 gap-x-7">
+                ${contacts.map(([label,val,copyKey],i)=>`<div class="copy-row flex items-baseline justify-between gap-3" data-copy="${String(val).replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="${i<contacts.length-2?'border-bottom:1px solid #F3F4F6;':''}"><span class="text-xs text-gray-500 flex-shrink-0">${label}</span><span class="flex items-baseline gap-1.5 min-w-0"><span class="text-sm font-medium text-gray-900 truncate">${val}</span><span data-glyph class="copy-glyph">⧉</span></span></div>`).join('')}
+            </div>`:''}
+            <div class="hidden md:flex flex-wrap gap-2">
+                ${(o.startDate&&o.startTime)?`<a href="${createGoogleCalendarLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>calendar</a>`:''}
+                ${(CALCOM_INSPECTION_URL&&(o.startDate||o.startTime))?`<a href="${createCalcomInspectionLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>cal.com</a>`:''}
+                ${SIGNING_ADMIN_URL?`<a href="${createSigningLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>sign</a>`:''}
+                ${ZOHO_WORKER_URL?`<button onclick="sendToZoho('${o.id}',this)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 8h6m-6 4h6m2 9l-3-2-3 2-3-2-3 2V5a2 2 0 012-2h10a2 2 0 012 2v16z"/></svg>invoice</button>`:''}
+                ${ZOHO_WORKER_URL?(o.zohoInvoiceId?`<a href="x-safari-${ZOHO_WEB_BASE}/app#/invoices/${o.zohoInvoiceId}" onclick="return openCalendarInSafari(this.href,event)" title="Open invoice${o.zohoDocNumber?` #${o.zohoDocNumber}`:''} in Zoho Books" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>view</a>`:`<button disabled title="Send an invoice to Zoho Books first" class="${secBtn} opacity-40 cursor-not-allowed"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>view</button>`):''}
+            </div>
+            ${o.desc?`<div><h3 class="text-xs text-gray-500 mb-1">Notes</h3><p class="text-sm text-gray-700 whitespace-pre-wrap">${o.desc}</p></div>`:''}
+            ${o.att&&o.att.length>0?`<div><h3 class="text-xs text-gray-500 mb-2">Attachments (${o.att.length})</h3><div class="space-y-2">${o.att.map(f=>`<div class="flex items-center justify-between px-3.5 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"><div class="flex items-center gap-3 flex-1 min-w-0"><svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="text-sm text-gray-900 truncate">${f.name}</span></div><div class="flex items-center gap-2 ml-4">${f.webUrl?`<a href="x-safari-${f.webUrl}" onclick="return openCalendarInSafari(this.href,event)" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></a>`:''}<button onclick="downloadFromOneDrive('${f.id}','${(f.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button><button onclick="deleteFile('${o.id}','${f.id}')" class="hidden md:inline-block p-1.5 hover:bg-red-100 rounded"><svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div></div>`).join('')}</div></div>`:''}
+            ${msalAccount?`<div class="hidden md:block"><h3 class="text-xs text-gray-500 mb-2">Upload Files</h3><div onclick="document.getElementById('file-upload-${o.id}').click()" ondragover="event.preventDefault();this.classList.add('border-gray-500','bg-gray-50');" ondragleave="this.classList.remove('border-gray-500','bg-gray-50');" ondrop="this.classList.remove('border-gray-500','bg-gray-50');uploadFiles(event,'${o.id}');" class="border border-dashed border-gray-300 rounded-lg py-2.5 text-center text-xs text-gray-400 cursor-pointer hover:bg-gray-50 hover:text-gray-600 transition-colors"><svg class="w-4 h-4 inline-block align-text-bottom mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Drop files here or click to upload<input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event,'${o.id}')" class="hidden"></div></div>`:''}
+            <div class="hidden md:flex pt-2 gap-3">
+                ${o.status==='Ordered'?`<button onclick="updateStatus('${o.id}','Completed')" class="flex-1 px-4 py-2.5 text-white rounded-lg font-semibold" style="background-color:#111827;" onmouseover="this.style.backgroundColor='#1F2937'" onmouseout="this.style.backgroundColor='#111827'">Mark Completed</button><button onclick="updateStatus('${o.id}','Cancelled')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Cancelled</button>`:`<button onclick="updateStatus('${o.id}','Ordered')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Ordered</button>`}
+            </div>
+        </div>`;
+    }
+    // ============================================================
+    // NEW ORDER MODAL
+    // ============================================================
+    function renderNewOrderModal() {
+        const clients = [...new Set([...data.orders.map(o=>o.client).filter(Boolean), 'Private'])].sort();
+        const prefillClient = (data.prefillOrder && data.prefillOrder.client) || '';
+        return `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)discardNewOrder();">
+            <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
+                <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900">New Order</h2>
+                        ${data.convertingConsId ? '<p class="text-xs text-indigo-600 mt-0.5">Pre-filled from consultation — review and complete</p>' : ''}
+                    </div>
+                    <button onclick="data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();" class="p-2 hover:bg-gray-100 rounded-lg"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                </div>
+                <div class="p-6 space-y-6">
+                    <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Property Information</h3>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Address *</label><input type="text" id="new-addr" placeholder="Start typing address..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                    </div>
+                    <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Client Information</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Fee</label><input type="text" inputmode="decimal" id="new-fee" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Client</label>
+                                <select id="new-client" onchange="if(this.value==='__new__')addNewClient(this);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900">
+                                    <option value="">Select a client...</option>
+                                    ${clients.map(c=>`<option value="${c}" ${c===prefillClient?'selected':''}>${c}</option>`).join('')}
+                                    <option value="__new__">+ Add New Client</option>
+                                </select>
+                            </div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Borrower</label><input type="text" id="new-borrower" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">POC</label><input type="text" id="new-poc" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="tel" id="new-phone" oninput="this.value=formatPhone(this.value);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="new-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Loan #</label><input type="text" id="new-loan" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div class="flex items-end"><label class="flex items-center gap-2 cursor-pointer pb-2"><input type="checkbox" id="new-fha" class="w-4 h-4 text-gray-900 border-gray-300 rounded"><span class="text-sm font-medium text-gray-700">FHA</span></label></div>
+                        </div>
+                    </div>
+                    <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Schedule</h3>
+                        <div class="grid grid-cols-[0.9fr,auto,0.9fr] gap-4">
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Inspection Date</label><input type="date" id="new-startDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div class="w-40"><label class="block text-sm font-medium text-gray-700 mb-1">Time</label><input type="time" id="new-startTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label><input type="date" id="new-dueDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                        </div>
+                    </div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Notes</label><textarea id="new-desc" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></textarea></div>
+                    ${msalAccount?`<div><label class="block text-sm font-semibold text-gray-900 mb-2">Upload Files</label><div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400"><button onclick="document.getElementById('new-file-upload').click()" class="text-sm text-gray-600 hover:text-gray-900 font-medium">Click to upload files</button><input type="file" id="new-file-upload" multiple onchange="handleNewFileSelect(event)" class="hidden"><div id="new-files-list" class="mt-3 text-sm text-gray-500"></div></div></div>`:''}
+                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                        <button onclick="data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();" class="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Cancel</button>
+                        <button onclick="createOrder()" class="px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium">Create Order</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // ============================================================
+    // ORDER CRUD
+    // ============================================================
+    function handleNewFileSelect(e) { const files=Array.from(e.target.files); const fl=document.getElementById('new-files-list'); if(files.length>0) fl.innerHTML=files.map(f=>`<div>${f.name}</div>`).join(''); }
+
+    function updateStatus(id, newStatus) {
+        const order = data.orders.find(o=>o.id===id);
+        if (order) { order.status=newStatus; if(newStatus==='Completed'&&!order.completedDate) order.completedDate=new Date().toISOString(); save(); data.selected=order; render(); }
+    }
+
+    async function saveEdit(id) {
+        const order = data.orders.find(o=>String(o.id)===String(id));
+        if (!order) { await showAlert('Order not found', 'error'); return; }
+        const addr = document.getElementById('edit-addr').value;
+        if (!addr.trim()) { await showAlert('Address is required', 'warning'); return; }
+        const location = window.editOrderLocation || {};
+        order.addr = location.addr || addr; order.city = location.city || order.city || ''; order.state = location.state || order.state || ''; order.zip = location.zip || order.zip || '';
+        order.fee = document.getElementById('edit-fee').value; order.client = document.getElementById('edit-client').value; order.borrower = document.getElementById('edit-borrower').value; order.poc = document.getElementById('edit-poc').value; order.phone = document.getElementById('edit-phone').value; order.email = document.getElementById('edit-email').value; order.loan = document.getElementById('edit-loan').value; order.fha = document.getElementById('edit-fha').checked; order.status = document.getElementById('edit-status').value; order.dueDate = document.getElementById('edit-dueDate').value; order.startDate = document.getElementById('edit-startDate').value; order.startTime = document.getElementById('edit-startTime').value; order.desc = document.getElementById('edit-desc').value;
+        if (order.status==='Completed'&&!order.completedDate) order.completedDate=new Date().toISOString();
+        const finish = () => { save(); data.selected=null; data.edit=false; window.editOrderLocation=null; render(); };
+        if (location.lat&&location.lng) { order.lat=location.lat; order.lng=location.lng; finish(); }
+        else { const gc=new google.maps.Geocoder(); gc.geocode({address:`${order.addr},${order.city},${order.state} ${order.zip}`},(results,status)=>{ if(status==='OK'&&results[0]){order.lat=results[0].geometry.location.lat();order.lng=results[0].geometry.location.lng();} finish(); }); }
+    }
+
+    async function createOrder() {
+        const addr = document.getElementById('new-addr').value;
+        if (!addr.trim()) { await showAlert('Address is required', 'warning'); return; }
+        const location = window.newOrderLocation || {};
+        const newOrder = { id: Date.now().toString(), status: 'Ordered', created: new Date().toISOString(), addr: location.addr||addr, city: location.city||'', state: location.state||'', zip: location.zip||'', lat: location.lat, lng: location.lng, fee: document.getElementById('new-fee').value, client: document.getElementById('new-client').value, borrower: document.getElementById('new-borrower').value, poc: document.getElementById('new-poc').value, phone: document.getElementById('new-phone').value, email: document.getElementById('new-email').value, loan: document.getElementById('new-loan').value, fha: document.getElementById('new-fha').checked, dueDate: document.getElementById('new-dueDate').value, startDate: document.getElementById('new-startDate').value, startTime: document.getElementById('new-startTime').value, desc: document.getElementById('new-desc')?document.getElementById('new-desc').value:'', num: genNumber(), att: [] };
+        const finish = async () => {
+            // Handle file uploads
+            const fi = document.getElementById('new-file-upload');
+            if (fi&&fi.files.length>0&&msalAccount) { for (const file of Array.from(fi.files)) { try { newOrder.att.push(await uploadToOneDrive(file, newOrder.id)); } catch(e) { await showAlert('Failed to upload '+file.name, 'error'); } } }
+            data.orders.push(newOrder); save();
+            data.showNew=false; data.prefillOrder=null; data.convertingConsId=null; window.newOrderLocation=null; render();
+        };
+        // Mark consultation as converted FIRST, independently of the order-save/geocoding
+        // branch below, so the Supabase patch always persists (prevents it reappearing on reload).
+        const convertingId = data.convertingConsId;
+        if (convertingId) {
+            const c = data.consultations.find(c=>c.id===convertingId); if(c) c.status='converted';
+            try {
+                if (SUPABASE_READY()) await patchConsultation(convertingId, { status: 'converted' });
+            } catch(e) { console.error('Error marking consultation converted:', e); }
+        }
+        if (!newOrder.lat||!newOrder.lng) { const gc=new google.maps.Geocoder(); gc.geocode({address:addr},async(results,status)=>{ if(status==='OK'&&results[0]){newOrder.lat=results[0].geometry.location.lat();newOrder.lng=results[0].geometry.location.lng();} await finish(); }); }
+        else await finish();
+    }
+
+    async function deleteOrder(id) {
+        const order = data.orders.find(o=>o.id===id);
+        if (order&&order.att) { for (const file of order.att) { try { await deleteFromOneDrive(file.id); } catch(e) {} } }
+        data.orders = data.orders.filter(o=>o.id!==id); save(); data.selected=null; render();
+    }
+    async function confirmDelete(id) { const o=data.orders.find(o=>o.id===id); if(await showConfirm(`Delete this order?\n\n${o.addr}\n\nThis cannot be undone.`, { confirmText:'Delete', danger:true })) deleteOrder(id); }
+
+    async function uploadFiles(e, orderId) {
+        // Support both dropped files (dataTransfer) and click-to-select (file input)
+        const isDrop = !!(e && e.dataTransfer);
+        if (isDrop) e.preventDefault();
+        if (!msalAccount) { await showAlert('Please sign in to OneDrive to upload files', 'warning'); return; }
+        const dropzone = isDrop ? e.currentTarget : e.target.parentElement;
+        const src = isDrop ? e.dataTransfer.files : e.target.files;
+        const files = Array.from(src || []); if(!files.length) return;
+        const order = data.orders.find(o=>o.id===orderId); if(!order) return;
+        if (!order.att) order.att=[];
+        // Swap the dropzone contents for a live progress bar during upload
+        let bar = null, label = null;
+        if (dropzone) {
+            dropzone.innerHTML = `<div class="text-left px-1"><p id="up-label" class="text-sm text-gray-600 mb-2"></p><div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden"><div id="up-bar" class="h-2 rounded-full transition-all duration-150" style="width:0%;background-color:#FF3B30;"></div></div></div>`;
+            bar = dropzone.querySelector('#up-bar');
+            label = dropzone.querySelector('#up-label');
+        }
+        let done = 0;
+        for (const file of files) {
+            if (label) label.textContent = files.length > 1 ? `Uploading ${file.name} (${done+1} of ${files.length})…` : `Uploading ${file.name}…`;
+            if (bar) bar.style.width = '0%';
+            try {
+                order.att.push(await uploadToOneDrive(file, orderId, (frac) => { if (bar) bar.style.width = Math.round(frac*100)+'%'; }));
+            } catch(err) { await showAlert('Failed to upload '+file.name+': '+err.message, 'error'); }
+            done++;
+        }
+        if (label) label.textContent = 'Done';
+        save(); if(data.selected&&data.selected.id===orderId) data.selected=order; render();
+    }
+    async function deleteFile(orderId, fileId) {
+        if (!await showConfirm('Delete this file?', { confirmText: 'Delete', danger: true })) return;
+        try { await deleteFromOneDrive(fileId); const o=data.orders.find(o=>o.id===orderId); if(o&&o.att){o.att=o.att.filter(f=>f.id!==fileId);save();if(data.selected&&data.selected.id===orderId)data.selected=o;render();} } catch(e) { await showAlert('Failed to delete: '+e.message, 'error'); }
+    }
+
+    localStorage.removeItem('googleAccessToken');
+    localStorage.removeItem('googleTokenExpiry');
+    render();
+    </script>
+</body>
+</html>
