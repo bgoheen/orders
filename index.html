@@ -66,6 +66,46 @@
         @media (max-width: 767px) {
             .modal-overlay { align-items: flex-start !important; padding-top: max(16px, env(safe-area-inset-top)) !important; }
         }
+        /* ---- visual polish: dark header, table rows, copy affordance ---- */
+        .hdr-tab { color:#9CA3AF; transition:background-color .15s, color .15s; }
+        .hdr-tab:hover { color:#fff; background-color:rgba(255,255,255,0.08); }
+        .hdr-tab-active { color:#fff; background-color:rgba(255,255,255,0.10); }
+        .hdr-icon-btn { color:#D1D5DB; background-color:rgba(255,255,255,0.10); transition:all .15s; }
+        .hdr-icon-btn:hover { background-color:rgba(255,255,255,0.20); color:#fff; }
+        .accent-btn { background-color:#F06556; color:#fff; transition:background-color .15s; }
+        .accent-btn:hover { background-color:#DA5647; }
+        .seg { background-color:#EDEFF2; padding:3px; border-radius:10px; display:inline-flex; gap:2px; }
+        .seg-btn { font-size:13.5px; font-weight:500; color:#6B7280; padding:7px 14px; border-radius:8px; transition:all .15s; }
+        .seg-btn:hover { color:#111827; }
+        .seg-btn-active { color:#111827; background:#fff; font-weight:600; box-shadow:0 1px 2px rgba(15,23,42,0.08); }
+        .seg-count { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:#9CA3AF; margin-left:7px; }
+        .seg-btn-active .seg-count { color:#6B7280; }
+        .list-shell { background:#fff; border:1px solid #E8EAED; border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,0.03); }
+        .list-head { display:grid; gap:0 18px; align-items:center; padding:9px 16px 9px 19px; background:#FBFBFC; border-bottom:1px solid #E8EAED; }
+        .list-head span { font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9CA3AF; }
+        .row-grid { display:grid; gap:0 18px; align-items:center; }
+        .list-head, .row-grid { grid-template-columns:minmax(0,1fr) 118px 92px 88px 104px 140px 44px 40px; }
+        .cons-head, .cons-grid { grid-template-columns:minmax(0,1fr) 96px 200px 140px 190px 128px 40px; }
+        .order-card.list-row { border-radius:0 !important; box-shadow:none !important; border-top:0; border-right:0; border-bottom:1px solid #F1F2F4; padding-top:0; padding-bottom:0; }
+        .order-card.list-row:hover { background-color:#FAFBFC; box-shadow:none !important; }
+        .order-card.list-row:last-child { border-bottom:0; }
+        .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+        .date-chip { display:inline-flex; align-items:center; font-size:13px; padding:3px 8px; border-radius:6px; color:#4B5563; }
+        .date-chip-warn { background:#FFFBEB; color:#92400E; font-weight:600; }
+        .date-chip-late { background:#FEF2F2; color:#991B1B; font-weight:600; }
+        .copy-row { cursor:pointer; border-radius:7px; padding:7px 8px; margin:0 -8px; transition:background-color .12s; }
+        .copy-row:hover { background-color:#F9FAFB; }
+        .copy-glyph { font-size:11px; color:#D1D5DB; transition:color .12s; }
+        .copy-row:hover .copy-glyph { color:#9CA3AF; }
+        .copy-dark { cursor:pointer; border-radius:8px; transition:background-color .12s; }
+        .copy-dark:hover { background-color:rgba(255,255,255,0.09); }
+        .act-pill { display:inline-flex; align-items:center; justify-content:center; gap:7px; font-size:13px; font-weight:500; color:#374151; border:1px solid #E5E7EB; border-radius:8px; padding:7px 13px; background:#fff; transition:all .15s; }
+        .act-pill:hover { background:#F9FAFB; border-color:#D1D5DB; }
+        .ribbon { display:grid; background:#F9FAFB; border-bottom:1px solid #E5E7EB; }
+        .ribbon > div { padding:14px 20px; border-right:1px solid #E5E7EB; }
+        .ribbon > div:last-child { border-right:0; }
+        .ribbon-label { font-size:11px; letter-spacing:0.05em; text-transform:uppercase; color:#9CA3AF; margin:0 0 3px; }
+        .ribbon-val { margin:0; font-size:20px; font-weight:650; letter-spacing:-0.01em; color:#111827; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -785,7 +825,7 @@
         const filteredCons = data.consultations.filter(c => c.status === data.consFilter);
 
         document.getElementById('app').innerHTML = `
-        <div class="bg-white border-b border-gray-200" style="background-color:#FEFEFF;">
+        <div style="background-color:#111827;">
             <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
                 <!-- Desktop header (md and up): unchanged -->
                 <div class="hidden md:flex items-center gap-8">
@@ -805,17 +845,17 @@
                                     : `data.tab='Orders'; render();`;
                             const badge = tab === 'Consultations' && pendingCons > 0
                                 ? `<span class="ml-1 inline-flex items-center justify-center text-xs font-bold rounded-full text-white" style="background-color:#FF3B30;min-width:18px;height:18px;padding:0 5px;line-height:1;">${pendingCons}</span>` : '';
-                            return `<button onclick="${onclick}" class="px-4 py-2 rounded-lg font-medium transition-all text-sm ${data.tab===tab?'text-gray-900 font-semibold':'text-gray-600 hover:text-gray-900'}">
+                            return `<button onclick="${onclick}" class="px-4 py-2 rounded-lg text-sm hdr-tab ${data.tab===tab?'hdr-tab-active font-semibold':'font-medium'}">
                                 <span class="flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[tab]}</svg>${tab}${badge}</span>
                             </button>`;
                         }).join('')}
                     </div>
                 </div>
                 <div class="hidden md:flex items-center gap-4">
-                    ${msalAccount ? `<button onclick="refreshOrders()" class="flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded-lg transition-colors" title="Tap to refresh from OneDrive"><div class="w-2 h-2 bg-green-500 rounded-full"></div><span class="text-xs text-gray-600">OneDrive</span></button>` : `<button onclick="signIn()" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Connect OneDrive</button>`}
+                    ${msalAccount ? `<button onclick="refreshOrders()" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hdr-icon-btn" title="Tap to refresh from OneDrive"><div class="w-1.5 h-1.5 rounded-full" style="background-color:#34D399;"></div><span class="text-xs" style="color:#D1D5DB;">OneDrive</span></button>` : `<button onclick="signIn()" class="text-xs font-medium px-2.5 py-1.5 rounded-lg hdr-icon-btn">Connect OneDrive</button>`}
                     ${data.tab === 'Consultations'
-                        ? `<button onclick="data.showNewCons=true; render();" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Consultation</button>`
-                        : `<button onclick="data.showNew=true; render();" class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all font-medium text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Order</button>`
+                        ? `<button onclick="data.showNewCons=true; render();" class="px-4 py-2 rounded-lg accent-btn font-semibold text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Consultation</button>`
+                        : `<button onclick="data.showNew=true; render();" class="px-4 py-2 rounded-lg accent-btn font-semibold text-sm flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>New Order</button>`
                     }
                 </div>
                 <!-- Mobile header (below md): Orders/Consultations + collapsed More menu -->
@@ -831,13 +871,13 @@
                                 : `data.tab='Orders'; render();`;
                             const badge = tab === 'Consultations' && pendingCons > 0
                                 ? `<span class="ml-1 inline-flex items-center justify-center text-xs font-bold rounded-full text-white" style="background-color:#FF3B30;min-width:18px;height:18px;padding:0 5px;line-height:1;">${pendingCons}</span>` : '';
-                            return `<button onclick="${onclick}" class="px-3 py-2 rounded-lg font-medium transition-all text-sm ${data.tab===tab?'text-gray-900 font-semibold':'text-gray-600 hover:text-gray-900'}">
+                            return `<button onclick="${onclick}" class="px-3 py-2 rounded-lg text-sm hdr-tab ${data.tab===tab?'hdr-tab-active font-semibold':'font-medium'}">
                                 <span class="flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[tab]}</svg>${tab}${badge}</span>
                             </button>`;
                         }).join('')}
                     </div>
                     <div class="dropdown-container relative flex-shrink-0">
-                        <button onclick="toggleDropdown('mobile-more',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+                        <button onclick="toggleDropdown('mobile-more',event)" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
                         <div id="dropdown-mobile-more" class="dropdown-menu">
                             <div class="dropdown-item" onclick="data.tab='Map'; render(); setTimeout(initializeMap,100);">Map</div>
                             <div class="dropdown-item" onclick="data.tab='Metrics'; render(); setTimeout(initializeMap,100);">Metrics</div>
@@ -907,19 +947,19 @@
         return `
         <div class="mb-6">
             <div class="flex items-center gap-4 mb-6">
-                <div class="flex gap-2">
+                <div class="seg">
                     ${['pending','completed','converted'].map(s => {
                         const label = s.charAt(0).toUpperCase()+s.slice(1);
-                        const [bg, color] = filterColors[s];
-                        return `<button onclick="data.consFilter='${s}'; render();" class="px-4 py-2.5 rounded-lg font-medium transition-all text-sm" style="background-color:${data.consFilter===s?'#fff':'#F5F5F5'}; ${data.consFilter===s?'box-shadow:0 1px 3px rgba(0,0,0,0.1);':''}">
-                            ${label} <span class="ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-semibold rounded-full" style="background-color:${bg};color:${color};">${counts[s]}</span>
+                        return `<button onclick="data.consFilter='${s}'; render();" class="seg-btn ${data.consFilter===s?'seg-btn-active':''}">
+                            ${label}<span class="seg-count">${counts[s]}</span>
                         </button>`;
                     }).join('')}
                 </div>
                 ${!data.consLoaded ? `<span class="text-sm text-gray-400 ml-auto">Loading...</span>` : ''}
                 ${!SUPABASE_READY() ? `<div class="ml-auto px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">⚠️ Supabase not configured — <a href="#" class="underline" onclick="showAlert('See setup-instructions.md')">see setup guide</a></div>` : ''}
             </div>
-            <div class="grid grid-cols-1 gap-3">
+            <div class="${filteredCons.length === 0 ? '' : 'list-shell'}">
+                ${filteredCons.length === 0 ? '' : `<div class="list-head cons-head hidden md:grid"><span>Name</span><span>Type</span><span>Address</span><span>Phone</span><span>Email</span><span>Booked</span><span></span></div>`}
                 ${filteredCons.length === 0 ? `
                     <div class="text-center py-16">
                         <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -927,16 +967,16 @@
                         ${data.consFilter==='pending' ? '<p class="text-sm text-gray-400 mt-1">New cal.com bookings will appear here automatically once setup is complete</p>' : ''}
                     </div>
                 ` : filteredCons.map(c => `
-                    <div class="order-card bg-white rounded-lg px-4 py-2 border border-gray-200 status-strip-${c.status} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selectedCons=${JSON.stringify(c).replace(/"/g,'&quot;')};render();}">
-                        <div class="flex items-center gap-4 text-sm">
-                            <div class="flex-1 min-w-0">
-                                <div class="font-semibold text-gray-900 truncate">${c.name || '—'}</div>
+                    <div class="order-card list-row bg-white px-4 border border-gray-200 status-strip-${c.status} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selectedCons=${JSON.stringify(c).replace(/"/g,'&quot;')};render();}">
+                        <div class="row-grid cons-grid text-sm">
+                            <div class="min-w-0 py-3">
+                                <div class="font-semibold text-gray-900 truncate" style="font-size:14.5px;letter-spacing:-0.01em;">${c.name || '—'}</div>
                             </div>
-                            ${c.appraisal_type ? `<div class="flex-shrink-0"><span class="cons-type-badge">${c.appraisal_type}</span></div>` : '<div class="w-20"></div>'}
-                            <div class="w-40 text-gray-600 truncate text-xs">${c.address ? c.address.replace(', USA','') : '—'}</div>
-                            <div class="w-36 text-gray-600">${c.phone ? formatUSPhone(c.phone) : '—'}</div>
-                            <div class="w-44 text-gray-500 truncate text-xs">${c.email || '—'}</div>
-                            <div class="w-32 text-gray-500 text-xs">${c.consultation_date ? formatConsDate(c.consultation_date) : '—'}</div>
+                            <div>${c.appraisal_type ? `<span class="cons-type-badge">${c.appraisal_type}</span>` : ''}</div>
+                            <div class="text-gray-600 truncate" style="font-size:13px;">${c.address ? c.address.replace(', USA','') : '<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-600 mono" style="font-size:12.5px;">${c.phone ? formatUSPhone(c.phone) : '<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-500 truncate" style="font-size:13px;">${c.email || '<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-500" style="font-size:13px;">${c.consultation_date ? formatConsDate(c.consultation_date) : '<span class="text-gray-300">—</span>'}</div>
                             <div class="dropdown-container relative flex-shrink-0">
                                 <button onclick="toggleDropdown('cons-${c.id}',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                                     <svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" transform="rotate(90 12 12)"/></svg>
@@ -1064,24 +1104,26 @@
         return `
         <div class="mb-6">
             <div class="flex items-center gap-4 mb-6">
-                <div class="flex gap-2 w-full md:w-auto">
+                <div class="seg w-full md:w-auto">
                     ${['Ordered','Completed','Cancelled'].map(status => {
                         const count = status==='Ordered'?ordered:status==='Completed'?completed:cancelled;
-                        const colors = {'Ordered':['#FEF3C7','#92400E'],'Completed':['#D1FAE5','#065F46'],'Cancelled':['#dee2e6','#495057']};
-                        const [bg,color] = colors[status];
-                        return `<button onclick="data.filter='${status}';render();" class="flex-1 md:flex-initial px-4 py-2.5 rounded-lg font-medium transition-all text-sm" style="background-color:${data.filter===status?'#fff':'#F5F5F5'};${data.filter===status?'box-shadow:0 1px 3px rgba(0,0,0,0.1);':''}">
-                            ${status} <span class="ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-semibold rounded-full" style="background-color:${bg};color:${color};">${count}</span>
+                        return `<button onclick="data.filter='${status}';render();" class="flex-1 md:flex-initial seg-btn ${data.filter===status?'seg-btn-active':''}">
+                            ${status}<span class="seg-count">${count}</span>
                         </button>`;
                     }).join('')}
                 </div>
                 <div class="hidden md:flex flex-1 max-w-md relative ml-auto">
-                    <input type="text" id="search-input" placeholder="Search orders..." value="${data.search}" oninput="handleSearch(this.value)" style="background-color:#FAFBFC;" class="w-full px-4 py-2.5 pr-10 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-sm">
+                    <svg class="w-4 h-4 absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" id="search-input" placeholder="Search address, client, order #" value="${data.search}" oninput="handleSearch(this.value)" style="background-color:#fff;" class="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent text-sm">
                     ${data.search ? `<button onclick="clearSearch()" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>` : ''}
                 </div>
             </div>
-            <div class="grid grid-cols-1 gap-3">
+            <div class="${filtered.length===0?'':'list-shell'}">
+                ${filtered.length===0?'':`<div class="list-head hidden md:grid">
+                    <span>Property</span><span>Client</span><span>Order</span><span style="text-align:right;">Fee</span><span>Due</span><span>Inspection</span><span></span><span></span>
+                </div>`}
                 ${filtered.map(o => {
                     const isOverdue = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
+                    const dueSoon = !isOverdue && o.status==='Ordered' && o.dueDate && (parseLocalDate(o.dueDate) - new Date()) < 3*86400000;
                     const borderClass = isOverdue ? 'overdue-border' : `status-strip-${o.status.toLowerCase()}`;
                     const makeDropdownHTML = (suffix) => `<div class="dropdown-container relative flex-shrink-0">
                                 <button onclick="toggleDropdown('${o.id}${suffix}',event)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" transform="rotate(90 12 12)"/></svg></button>
@@ -1094,20 +1136,20 @@
                             </div>`;
                     const dropdownHTML = makeDropdownHTML('-d');
                     const dropdownHTMLMobile = makeDropdownHTML('-m');
-                    return `<div class="order-card bg-white rounded-lg px-4 py-2 border border-gray-200 ${borderClass} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=false;render();}">
+                    return `<div class="order-card list-row bg-white px-4 border border-gray-200 ${borderClass} relative cursor-pointer" onclick="if(!event.target.closest('.dropdown-container')){data.selected=${JSON.stringify(o).replace(/"/g,'&quot;')};data.edit=false;render();}">
                         <!-- Desktop row (md and up) -->
-                        <div class="hidden md:flex items-center gap-4 text-sm">
-                            <div class="flex-1 min-w-0"><div class="font-semibold text-gray-900 truncate">${o.addr.replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}</div></div>
-                            <div class="w-32 text-gray-700 truncate">${o.client||'—'}</div>
-                            <div class="w-28 text-gray-700">${o.num||'—'}</div>
-                            <div class="w-24 text-gray-700">${o.fee?(o.fee.toString().startsWith('$')?o.fee:'$'+o.fee):'—'}</div>
-                            <div class="w-24 ${isOverdue?'overdue-text':'text-gray-700'} flex items-center gap-1">${o.dueDate?`<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}`:'—'}</div>
-                            <div class="w-40 text-gray-700 flex items-center gap-1">${o.startDate?`<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${formatDate(o.startDate)}${o.startTime?', '+formatTime12(o.startTime):''}` : '—'}</div>
-                            <div class="w-12 flex-shrink-0">${o.fha?`<span class="text-xs font-semibold px-2 py-1 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}</div>
+                        <div class="hidden md:grid row-grid text-sm">
+                            <div class="min-w-0 py-3"><div class="font-semibold text-gray-900 truncate" style="font-size:14.5px;letter-spacing:-0.01em;">${o.addr.replace(', USA','').replace(' USA','')}${o.city?`<span style="font-weight:450;color:#9CA3AF;">, ${o.city}</span>`:''}</div></div>
+                            <div class="text-gray-600 truncate" style="font-size:13.5px;">${o.client||'—'}</div>
+                            <div class="mono text-gray-500" style="font-size:12.5px;">${o.num||'—'}</div>
+                            <div class="mono font-semibold text-gray-900" style="font-size:13.5px;text-align:right;">${o.fee?(o.fee.toString().startsWith('$')?o.fee:'$'+o.fee):'—'}</div>
+                            <div>${o.dueDate?`<span class="date-chip ${isOverdue?'date-chip-late':(dueSoon?'date-chip-warn':'')}">${formatDate(o.dueDate)}</span>`:'<span class="text-gray-300">—</span>'}</div>
+                            <div class="text-gray-600" style="font-size:13px;">${o.startDate?`${formatDate(o.startDate)}${o.startTime?` · ${formatTime12(o.startTime)}`:''}` : '<span class="text-gray-300">—</span>'}</div>
+                            <div>${o.fha?`<span class="text-xs font-semibold px-1.5 py-0.5 rounded" style="background:#EFF6FF;color:#1D4ED8;">FHA</span>`:''}</div>
                             ${dropdownHTML}
                         </div>
                         <!-- Mobile card (below md) -->
-                        <div class="md:hidden py-1.5">
+                        <div class="md:hidden py-3">
                             <div class="flex items-start justify-between gap-2">
                                 <div class="min-w-0">
                                     <div class="font-semibold text-gray-900 leading-snug truncate">${o.addr.replace(', USA','').replace(' USA','')}</div>
@@ -1196,17 +1238,41 @@
     // ============================================================
     // ORDER DETAIL MODAL
     // ============================================================
+    // Click-to-copy: any element with data-copy copies its value and flashes a check
+    function copyField(el) {
+        const v = el.getAttribute('data-copy') || '';
+        try { navigator.clipboard.writeText(v); } catch (e) {}
+        const g = el.querySelector('[data-glyph]');
+        if (!g || g.dataset.busy) return;
+        g.dataset.busy = '1';
+        const prev = g.textContent, prevColor = g.style.color;
+        g.textContent = '✓'; g.style.color = '#10B981';
+        setTimeout(() => { g.textContent = prev; g.style.color = prevColor; delete g.dataset.busy; }, 1200);
+    }
     function renderDetailModal() {
         const o = data.selected;
         if (!o) return '';
+        const street = (o.addr||'').replace(', USA','').replace(' USA','');
+        const locality = `${o.city||''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`.replace(/^, /,'');
+        const fullAddrHdr = `${street}${locality?`, ${locality}`:''}`;
+        const statusDot = { ordered:'#F59E0B', completed:'#34D399', cancelled:'#9CA3AF' }[o.status.toLowerCase()] || '#9CA3AF';
+        const statusTint = { ordered:'rgba(245,158,11,0.16)', completed:'rgba(52,211,153,0.16)', cancelled:'rgba(156,163,175,0.18)' }[o.status.toLowerCase()] || 'rgba(156,163,175,0.18)';
+        const statusText = { ordered:'#FCD34D', completed:'#6EE7B7', cancelled:'#D1D5DB' }[o.status.toLowerCase()] || '#D1D5DB';
         return `
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)closeDetailModal();">
             <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
-                <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
-                    <div class="flex items-center gap-3"><h2 class="text-xl font-semibold text-gray-900">Order Details</h2><span class="status-badge status-${o.status.toLowerCase()}">${o.status}</span></div>
-                    <div class="flex items-center gap-2">
-                        ${!data.edit?`<button onclick="data.edit=true;render();" class="p-2 hover:bg-gray-100 rounded-lg transition-colors"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>`:''}
-                        <button onclick="data.selected=null;data.edit=false;render();" class="p-2 hover:bg-gray-100 rounded-lg"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                <div class="sticky top-0 z-10 px-6 pt-5 pb-5 flex items-start justify-between gap-4 rounded-t-2xl" style="background-color:#111827;">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 mb-2">
+                            ${o.num?`<span class="mono copy-dark inline-flex items-center gap-1.5" data-copy="${String(o.num).replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="font-size:12px;letter-spacing:0.06em;color:#9CA3AF;padding:2px 6px;margin-left:-6px;">${o.num}<span data-glyph style="font-size:11px;opacity:0.55;">⧉</span></span>`:''}
+                            <span class="inline-flex items-center gap-1.5" style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;background:${statusTint};color:${statusText};padding:4px 9px;border-radius:999px;"><span style="width:6px;height:6px;border-radius:50%;background:${statusDot};"></span>${o.status}</span>
+                        </div>
+                        <h2 class="copy-dark inline-flex items-baseline gap-2" data-copy="${fullAddrHdr.replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="margin:0 0 0 -8px;padding:2px 8px;font-size:23px;line-height:1.2;font-weight:650;letter-spacing:-0.02em;color:#fff;">${street}<span data-glyph style="font-size:14px;color:#9CA3AF;">⧉</span></h2>
+                        ${locality?`<p style="margin:4px 0 0;font-size:14px;color:#9CA3AF;">${locality}</p>`:''}
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        ${!data.edit?`<button onclick="data.edit=true;render();" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>`:''}
+                        <button onclick="data.selected=null;data.edit=false;render();" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
                     </div>
                 </div>
                 <div class="p-6">
@@ -1257,7 +1323,7 @@
                 <button onclick="deleteOrder('${o.id}')" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium">Delete Order</button>
                 <div class="flex gap-3">
                     <button onclick="data.edit=false;render();" class="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Cancel</button>
-                    <button onclick="saveEdit('${o.id}');" class="px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium">Save Changes</button>
+                    <button onclick="saveEdit('${o.id}');" class="px-5 py-2 rounded-lg accent-btn font-semibold">Save Changes</button>
                 </div>
             </div>
         </div>`;
@@ -1266,7 +1332,7 @@
     function renderViewMode(o) {
         const copyBtn = (text, label) => `<button onclick="navigator.clipboard.writeText('${text}');this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M5 13l4 4L19 7\\'></path></svg>';setTimeout(()=>this.innerHTML='<svg class=\\'w-4 h-4\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z\\'></path></svg>',2000);" class="p-1.5 hover:bg-gray-100 rounded transition-colors text-gray-500 inline-flex items-center justify-center" style="min-width:28px;min-height:28px;"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button>`;
         const fullAddr = `${(o.addr||'').replace(', USA','').replace(' USA','')}${o.city?`, ${o.city}`:''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`;
-        const secBtn = 'flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium';
+        const secBtn = 'act-pill';
         // Key-facts strip (only cells that have data)
         const stats = [];
         if (o.fee) stats.push(['Fee', `${o.fee.toString().startsWith('$')?o.fee:'$'+o.fee}`]);
@@ -1280,18 +1346,20 @@
         if (o.phone) contacts.push(['Phone', o.phone, 'phone']);
         if (o.email) contacts.push(['Email', o.email, 'email']);
         if (o.loan) contacts.push(['Loan #', o.loan, 'loan#']);
+        const isLate = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
+        const isSoon = !isLate && o.status==='Ordered' && o.dueDate && (parseLocalDate(o.dueDate) - new Date()) < 3*86400000;
         return `<div class="space-y-5">
-            ${o.num?`<div class="flex items-center gap-2"><span class="text-sm text-gray-500">Order #</span><span class="text-sm font-semibold text-gray-900">${o.num}</span>${copyBtn(o.num,'order#')}</div>`:''}
-            <div class="flex items-start gap-2">
-                <svg class="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                <h2 class="text-lg font-semibold text-gray-900 leading-snug">${fullAddr}</h2>
-                ${copyBtn(shortStreet(o.addr).replace(/'/g,"\\'"),'address')}
-            </div>
-            ${stats.length?`<div class="grid gap-2" style="grid-template-columns:repeat(${stats.length},minmax(0,1fr));">
-                ${stats.map(([label,val])=>`<div class="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2.5"><p class="text-xs text-gray-500 mb-0.5">${label}</p><p class="text-base font-semibold text-gray-900">${val}</p></div>`).join('')}
+            ${stats.length?`<div class="ribbon -mx-6 -mt-6 mb-1" style="grid-template-columns:repeat(${stats.length},minmax(0,1fr));">
+                ${stats.map(([label,val])=>{
+                    const isDue = label==='Due';
+                    const bg = isDue&&isLate ? 'background:#FEF2F2;' : (isDue&&isSoon ? 'background:#FFFBEB;' : '');
+                    const lc = isDue&&isLate ? 'color:#B91C1C;' : (isDue&&isSoon ? 'color:#B45309;' : '');
+                    const vc = isDue&&isLate ? 'color:#991B1B;' : (isDue&&isSoon ? 'color:#92400E;' : '');
+                    return `<div style="${bg}"><p class="ribbon-label" style="${lc}">${label}</p><p class="ribbon-val" style="${vc}">${val}</p></div>`;
+                }).join('')}
             </div>`:''}
-            ${contacts.length?`<div class="grid grid-cols-2 gap-x-6 gap-y-3">
-                ${contacts.map(([label,val,copyKey])=>`<div><p class="text-xs text-gray-500 mb-0.5">${label}</p><div class="flex items-center gap-1"><p class="text-sm text-gray-900">${val}</p>${copyKey?copyBtn(val,copyKey):''}</div></div>`).join('')}
+            ${contacts.length?`<div class="grid grid-cols-2 gap-x-7">
+                ${contacts.map(([label,val,copyKey],i)=>`<div class="copy-row flex items-baseline justify-between gap-3" data-copy="${String(val).replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="${i<contacts.length-2?'border-bottom:1px solid #F3F4F6;':''}"><span class="text-xs text-gray-500 flex-shrink-0">${label}</span><span class="flex items-baseline gap-1.5 min-w-0"><span class="text-sm font-medium text-gray-900 truncate">${val}</span><span data-glyph class="copy-glyph">⧉</span></span></div>`).join('')}
             </div>`:''}
             <div class="hidden md:flex flex-wrap gap-2">
                 ${(o.startDate&&o.startTime)?`<a href="${createGoogleCalendarLink(o)}" onclick="return openCalendarInSafari(this.href,event)" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>calendar</a>`:''}
@@ -1301,10 +1369,10 @@
                 ${ZOHO_WORKER_URL?(o.zohoInvoiceId?`<a href="x-safari-${ZOHO_WEB_BASE}/app#/invoices/${o.zohoInvoiceId}" onclick="return openCalendarInSafari(this.href,event)" title="Open invoice${o.zohoDocNumber?` #${o.zohoDocNumber}`:''} in Zoho Books" class="${secBtn}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>view</a>`:`<button disabled title="Send an invoice to Zoho Books first" class="${secBtn} opacity-40 cursor-not-allowed"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>view</button>`):''}
             </div>
             ${o.desc?`<div><h3 class="text-xs text-gray-500 mb-1">Notes</h3><p class="text-sm text-gray-700 whitespace-pre-wrap">${o.desc}</p></div>`:''}
-            ${o.att&&o.att.length>0?`<div><h3 class="text-xs text-gray-500 mb-2">Attachments (${o.att.length})</h3><div class="space-y-2">${o.att.map(f=>`<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"><div class="flex items-center gap-3 flex-1 min-w-0"><svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="text-sm text-gray-900 truncate">${f.name}</span></div><div class="flex items-center gap-2 ml-4">${f.webUrl?`<a href="x-safari-${f.webUrl}" onclick="return openCalendarInSafari(this.href,event)" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></a>`:''}<button onclick="downloadFromOneDrive('${f.id}','${(f.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button><button onclick="deleteFile('${o.id}','${f.id}')" class="hidden md:inline-block p-1.5 hover:bg-red-100 rounded"><svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div></div>`).join('')}</div></div>`:''}
-            ${msalAccount?`<div class="hidden md:block"><h3 class="text-xs text-gray-500 mb-2">Upload Files</h3><div onclick="document.getElementById('file-upload-${o.id}').click()" ondragover="event.preventDefault();this.classList.add('border-gray-500','bg-gray-50');" ondragleave="this.classList.remove('border-gray-500','bg-gray-50');" ondrop="this.classList.remove('border-gray-500','bg-gray-50');uploadFiles(event,'${o.id}');" class="border border-dashed border-gray-300 rounded-lg py-3 text-center text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"><svg class="w-4 h-4 inline-block align-text-bottom mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Drop files here or click to upload<input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event,'${o.id}')" class="hidden"></div></div>`:''}
+            ${o.att&&o.att.length>0?`<div><h3 class="text-xs text-gray-500 mb-2">Attachments (${o.att.length})</h3><div class="space-y-2">${o.att.map(f=>`<div class="flex items-center justify-between px-3.5 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"><div class="flex items-center gap-3 flex-1 min-w-0"><svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="text-sm text-gray-900 truncate">${f.name}</span></div><div class="flex items-center gap-2 ml-4">${f.webUrl?`<a href="x-safari-${f.webUrl}" onclick="return openCalendarInSafari(this.href,event)" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></a>`:''}<button onclick="downloadFromOneDrive('${f.id}','${(f.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" class="p-1.5 hover:bg-gray-200 rounded"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button><button onclick="deleteFile('${o.id}','${f.id}')" class="hidden md:inline-block p-1.5 hover:bg-red-100 rounded"><svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div></div>`).join('')}</div></div>`:''}
+            ${msalAccount?`<div class="hidden md:block"><h3 class="text-xs text-gray-500 mb-2">Upload Files</h3><div onclick="document.getElementById('file-upload-${o.id}').click()" ondragover="event.preventDefault();this.classList.add('border-gray-500','bg-gray-50');" ondragleave="this.classList.remove('border-gray-500','bg-gray-50');" ondrop="this.classList.remove('border-gray-500','bg-gray-50');uploadFiles(event,'${o.id}');" class="border border-dashed border-gray-300 rounded-lg py-2.5 text-center text-xs text-gray-400 cursor-pointer hover:bg-gray-50 hover:text-gray-600 transition-colors"><svg class="w-4 h-4 inline-block align-text-bottom mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Drop files here or click to upload<input type="file" id="file-upload-${o.id}" multiple onchange="uploadFiles(event,'${o.id}')" class="hidden"></div></div>`:''}
             <div class="hidden md:flex pt-2 gap-3">
-                ${o.status==='Ordered'?`<button onclick="updateStatus('${o.id}','Completed')" class="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">Mark Completed</button><button onclick="updateStatus('${o.id}','Cancelled')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Cancelled</button>`:`<button onclick="updateStatus('${o.id}','Ordered')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Ordered</button>`}
+                ${o.status==='Ordered'?`<button onclick="updateStatus('${o.id}','Completed')" class="flex-1 px-4 py-2.5 text-white rounded-lg font-semibold" style="background-color:#111827;" onmouseover="this.style.backgroundColor='#1F2937'" onmouseout="this.style.backgroundColor='#111827'">Mark Completed</button><button onclick="updateStatus('${o.id}','Cancelled')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Cancelled</button>`:`<button onclick="updateStatus('${o.id}','Ordered')" class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Mark Ordered</button>`}
             </div>
         </div>`;
     }
