@@ -273,7 +273,11 @@
         if (!SUPABASE_READY()) { data.consLoaded = true; render(); return; }
         try {
             const results = await supabaseFetch('consultations?order=consultation_date.desc.nullsfirst,created_at.desc');
-            data.consultations = results || [];
+            // Exclude order-originated inspection bookings: these come from the cal.com
+            // inspection-scheduling flow (createCalcomInspectionLink), which pre-fills the
+            // booking notes with "Order #: ... | Property: ...". They are not intake
+            // consultations and shouldn't appear in the Consultations tab, badge, or counts.
+            data.consultations = (results || []).filter(c => !(c.notes && c.notes.trim().startsWith('Order #:')));
             data.consLoaded = true;
         } catch(e) {
             console.error('Fetch consultations error:', e);
