@@ -106,6 +106,13 @@
         .ribbon > div:last-child { border-right:0; }
         .ribbon-label { font-size:11px; letter-spacing:0.05em; text-transform:uppercase; color:#9CA3AF; margin:0 0 3px; }
         .ribbon-val { margin:0; font-size:20px; font-weight:650; letter-spacing:-0.01em; color:#111827; }
+        .form-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px 16px; }
+        .form-grid .col-span-2 { grid-column:span 2; }
+        @media (max-width:767px) { .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .form-grid .col-span-2 { grid-column:span 2; } }
+        .fl { display:block; font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:#9CA3AF; margin-bottom:5px; }
+        .fi { width:100%; padding:9px 11px; font-size:14px; color:#111827; border:1px solid #E1E4E8; border-radius:8px; background:#fff; transition:border-color .15s, box-shadow .15s; }
+        .fi:focus { outline:none; border-color:#111827; box-shadow:0 0 0 3px rgba(17,24,39,0.08); }
+        .fi::placeholder { color:#C4C8CE; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -1384,49 +1391,50 @@
         const prefillClient = (data.prefillOrder && data.prefillOrder.client) || '';
         return `
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)discardNewOrder();">
-            <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
-                <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+            <div class="bg-white rounded-2xl w-full max-w-4xl" onclick="event.stopPropagation();" style="max-height:92vh;display:flex;flex-direction:column;">
+                <div class="px-6 py-4 flex items-start justify-between gap-4 rounded-t-2xl flex-shrink-0" style="background-color:#111827;">
                     <div>
-                        <h2 class="text-xl font-semibold text-gray-900">New Order</h2>
-                        ${data.convertingConsId ? '<p class="text-xs text-indigo-600 mt-0.5">Pre-filled from consultation — review and complete</p>' : ''}
+                        <h2 style="margin:0;font-size:20px;font-weight:650;letter-spacing:-0.02em;color:#fff;">New Order</h2>
+                        ${data.convertingConsId ? '<p style="margin:3px 0 0;font-size:12.5px;color:#9CA3AF;">Pre-filled from consultation — review and complete</p>' : ''}
                     </div>
-                    <button onclick="data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();" class="p-2 hover:bg-gray-100 rounded-lg"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                    <button onclick="data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();" class="p-2 rounded-lg hdr-icon-btn flex-shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
                 </div>
-                <div class="p-6 space-y-6">
-                    <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Property Information</h3>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Address *</label><input type="text" id="new-addr" placeholder="Start typing address..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                    </div>
-                    <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Client Information</h3>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Fee</label><input type="text" inputmode="decimal" id="new-fee" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Client</label>
-                                <select id="new-client" onchange="if(this.value==='__new__')addNewClient(this);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900">
-                                    <option value="">Select a client...</option>
-                                    ${clients.map(c=>`<option value="${c}" ${c===prefillClient?'selected':''}>${c}</option>`).join('')}
-                                    <option value="__new__">+ Add New Client</option>
-                                </select>
+                <div class="px-6 py-5" style="overflow-y:auto;">
+                    <div class="form-grid">
+                        <div class="col-span-2"><label class="fl">Address <span style="color:#F06556;">*</span></label><input type="text" id="new-addr" placeholder="Start typing address…" class="fi"></div>
+                        <div><label class="fl">Fee</label><input type="text" inputmode="decimal" id="new-fee" placeholder="0.00" class="fi mono"></div>
+
+                        <div><label class="fl">Client</label>
+                            <select id="new-client" onchange="if(this.value==='__new__')addNewClient(this);" class="fi">
+                                <option value="">Select a client…</option>
+                                ${clients.map(c=>`<option value="${c}" ${c===prefillClient?'selected':''}>${c}</option>`).join('')}
+                                <option value="__new__">+ Add New Client</option>
+                            </select>
+                        </div>
+                        <div><label class="fl">POC</label><input type="text" id="new-poc" class="fi"></div>
+                        <div><label class="fl">Borrower</label><input type="text" id="new-borrower" class="fi"></div>
+
+                        <div><label class="fl">Phone</label><input type="tel" id="new-phone" oninput="this.value=formatPhone(this.value);" class="fi"></div>
+                        <div><label class="fl">Email</label><input type="email" id="new-email" class="fi"></div>
+                        <div><label class="fl">Loan #</label><input type="text" id="new-loan" class="fi mono"></div>
+
+                        <div><label class="fl">Inspection</label>
+                            <div style="display:grid;grid-template-columns:1fr 118px;gap:6px;">
+                                <input type="date" id="new-startDate" class="fi"><input type="time" id="new-startTime" class="fi">
                             </div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Borrower</label><input type="text" id="new-borrower" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">POC</label><input type="text" id="new-poc" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="tel" id="new-phone" oninput="this.value=formatPhone(this.value);" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="new-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Loan #</label><input type="text" id="new-loan" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div class="flex items-end"><label class="flex items-center gap-2 cursor-pointer pb-2"><input type="checkbox" id="new-fha" class="w-4 h-4 text-gray-900 border-gray-300 rounded"><span class="text-sm font-medium text-gray-700">FHA</span></label></div>
                         </div>
-                    </div>
-                    <div><h3 class="text-sm font-semibold text-gray-900 mb-3">Schedule</h3>
-                        <div class="grid grid-cols-[0.9fr,auto,0.9fr] gap-4">
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Inspection Date</label><input type="date" id="new-startDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div class="w-40"><label class="block text-sm font-medium text-gray-700 mb-1">Time</label><input type="time" id="new-startTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label><input type="date" id="new-dueDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
+                        <div><label class="fl">Due Date</label><input type="date" id="new-dueDate" class="fi"></div>
+                        <div><label class="fl">FHA</label>
+                            <label class="fi flex items-center gap-2 cursor-pointer" style="background:#FBFBFC;"><input type="checkbox" id="new-fha" class="w-4 h-4 rounded border-gray-300" style="accent-color:#111827;"><span class="text-sm text-gray-600">FHA appraisal</span></label>
                         </div>
+
+                        <div class="col-span-2"><label class="fl">Notes</label><textarea id="new-desc" rows="2" class="fi" style="resize:vertical;"></textarea></div>
+                        ${msalAccount?`<div><label class="fl">Files</label><div onclick="document.getElementById('new-file-upload').click()" class="fi flex items-center justify-center gap-2 cursor-pointer" style="border-style:dashed;color:#9CA3AF;background:#FBFBFC;"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v12m0-12l-4 4m4-4l4 4M4 20h16"/></svg><span class="text-sm">Upload files</span></div><input type="file" id="new-file-upload" multiple onchange="handleNewFileSelect(event)" class="hidden"><div id="new-files-list" class="mt-1.5 text-xs text-gray-500"></div></div>`:''}
                     </div>
-                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Notes</label><textarea id="new-desc" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></textarea></div>
-                    ${msalAccount?`<div><label class="block text-sm font-semibold text-gray-900 mb-2">Upload Files</label><div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400"><button onclick="document.getElementById('new-file-upload').click()" class="text-sm text-gray-600 hover:text-gray-900 font-medium">Click to upload files</button><input type="file" id="new-file-upload" multiple onchange="handleNewFileSelect(event)" class="hidden"><div id="new-files-list" class="mt-3 text-sm text-gray-500"></div></div></div>`:''}
-                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-200">
-                        <button onclick="data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();" class="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">Cancel</button>
-                        <button onclick="createOrder()" class="px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium">Create Order</button>
-                    </div>
+                </div>
+                <div class="px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200 rounded-b-2xl flex-shrink-0" style="background:#FBFBFC;">
+                    <button onclick="data.showNew=false;data.prefillOrder=null;data.convertingConsId=null;render();" class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-white font-medium text-sm">Cancel</button>
+                    <button onclick="createOrder()" class="px-5 py-2.5 rounded-lg accent-btn font-semibold text-sm">Create Order</button>
                 </div>
             </div>
         </div>`;
