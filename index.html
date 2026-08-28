@@ -40,6 +40,9 @@
         .overdue-border { border-left: 4px solid #DC2626 !important; }
         .overdue-text { color: #DC2626 !important; font-weight: 600; }
         #map { height: 500px; border-radius: 12px; overflow: hidden; }
+        /* Desaturate the OSM raster tiles so the basemap reads as a light neutral canvas.
+           Tile pane only, so markers and popups keep full color. */
+        .leaflet-tile-pane { filter: grayscale(0.9) brightness(1.07) contrast(0.9); }
         .dropdown-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 100; min-width: 160px; }
         .dropdown-menu.show { display: block; }
         .order-card { position: relative; z-index: 1; }
@@ -738,7 +741,7 @@
         if (!mapContainer) return;
         if (map) { map.remove(); map = null; markers = []; heatmap = null; }
         map = L.map('map').setView([44.9537, -93.0900], 11);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 20, subdomains: 'abcd' }).addTo(map);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxNativeZoom: 19, maxZoom: 20 }).addTo(map);
         updateMap();
     }
     function updateMap() {
