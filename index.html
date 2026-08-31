@@ -1266,6 +1266,44 @@
     // ============================================================
     // ORDER DETAIL MODAL
     // ============================================================
+    // ---- Street-address abbreviation (used for the click-to-copy file name) ----
+    // USPS-style suffix abbreviations. Only the street-type suffix and directionals
+    // are touched; the street NAME itself is never altered.
+    const ST_SUFFIX = {
+        alley:'Aly', avenue:'Ave', ave:'Ave', bend:'Bnd', boulevard:'Blvd', blvd:'Blvd',
+        circle:'Cir', cir:'Cir', court:'Ct', ct:'Ct', cove:'Cv', creek:'Crk', crescent:'Cres',
+        crossing:'Xing', curve:'Curv', drive:'Dr', dr:'Dr', estates:'Est', expressway:'Expy',
+        extension:'Ext', freeway:'Fwy', gardens:'Gdns', glen:'Gln', green:'Grn', grove:'Grv',
+        heights:'Hts', highway:'Hwy', hwy:'Hwy', island:'Is', junction:'Jct', knoll:'Knl',
+        lake:'Lk', landing:'Lndg', lane:'Ln', ln:'Ln', loop:'Loop', manor:'Mnr', meadows:'Mdws',
+        parkway:'Pkwy', pkwy:'Pkwy', pass:'Pass', path:'Path', place:'Pl', pl:'Pl', plaza:'Plz',
+        point:'Pt', ridge:'Rdg', river:'Riv', road:'Rd', rd:'Rd', route:'Rte', row:'Row',
+        run:'Run', square:'Sq', springs:'Spgs', station:'Sta', street:'St', st:'St',
+        summit:'Smt', terrace:'Ter', trail:'Trl', turnpike:'Tpke', valley:'Vly', view:'Vw',
+        village:'Vlg', walk:'Walk', way:'Way', wells:'Wls'
+    };
+    const ST_DIR = {
+        north:'N', south:'S', east:'E', west:'W',
+        northeast:'NE', northwest:'NW', southeast:'SE', southwest:'SW',
+        n:'N', s:'S', e:'E', w:'W', ne:'NE', nw:'NW', se:'SE', sw:'SW'
+    };
+    const _stKey = w => w.toLowerCase().replace(/\./g,'');
+    function abbrevStreet(s) {
+        if (!s) return '';
+        // Keep anything after a comma (unit / suite / apt) untouched
+        const parts = String(s).trim().replace(/\s+/g,' ').split(',');
+        const words = parts[0].split(' ');
+        let last = words.length - 1;
+        // trailing directional, e.g. "123 Main Street NE"
+        if (last > 1 && ST_DIR[_stKey(words[last])]) { words[last] = ST_DIR[_stKey(words[last])]; last--; }
+        // street-type suffix
+        if (last > 0 && ST_SUFFIX[_stKey(words[last])]) words[last] = ST_SUFFIX[_stKey(words[last])];
+        // leading directional immediately after the house number, e.g. "620 West 7th St"
+        if (words.length > 2 && /^\d/.test(words[0]) && ST_DIR[_stKey(words[1])]) words[1] = ST_DIR[_stKey(words[1])];
+        parts[0] = words.join(' ');
+        return parts.join(',');
+    }
+
     // Click-to-copy: any element with data-copy copies its value and flashes a check
     function copyField(el) {
         const v = el.getAttribute('data-copy') || '';
@@ -1282,9 +1320,9 @@
         if (!o) return '';
         const street = (o.addr||'').replace(', USA','').replace(' USA','');
         const locality = `${o.city||''}${o.state?`, ${o.state}`:''}${o.zip?` ${o.zip}`:''}`.replace(/^, /,'');
-        // Clicking the header copies the STREET ADDRESS ONLY (no city/state/zip) —
-        // it's used to name report files, e.g. "1340 Como Avenue"
-        const copyAddr = street;
+        // Clicking the header copies the STREET ADDRESS ONLY, abbreviated —
+        // it's used to name report files, e.g. "1340 Como Ave"
+        const copyAddr = abbrevStreet(street);
         const statusDot = { ordered:'#F59E0B', completed:'#34D399', cancelled:'#9CA3AF' }[o.status.toLowerCase()] || '#9CA3AF';
         const statusTint = { ordered:'rgba(245,158,11,0.16)', completed:'rgba(52,211,153,0.16)', cancelled:'rgba(156,163,175,0.18)' }[o.status.toLowerCase()] || 'rgba(156,163,175,0.18)';
         const statusText = { ordered:'#FCD34D', completed:'#6EE7B7', cancelled:'#D1D5DB' }[o.status.toLowerCase()] || '#D1D5DB';
