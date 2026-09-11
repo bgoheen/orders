@@ -43,6 +43,8 @@
         /* Desaturate the OSM raster tiles so the basemap reads as a light neutral canvas.
            Tile pane only, so markers and popups keep full color. */
         .leaflet-tile-pane { filter: grayscale(0.9) brightness(1.07) contrast(0.9); }
+        .map-popup-link { color: #111827 !important; font-weight: 600; text-decoration: underline; text-decoration-color: #D1D5DB; text-underline-offset: 3px; cursor: pointer; }
+        .map-popup-link:hover { color: #F06556 !important; text-decoration-color: #F06556; }
         .dropdown-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 100; min-width: 160px; }
         .dropdown-menu.show { display: block; }
         .order-card { position: relative; z-index: 1; }
@@ -779,7 +781,7 @@
             ordersToShow.forEach(order => {
                 const marker = L.marker([parseFloat(order.lat), parseFloat(order.lng)]).addTo(map);
                 const feeDisplay = order.fee ? (order.fee.toString().startsWith('$') ? order.fee : '$'+order.fee) : '$0';
-                marker.bindPopup(`<div style="min-width:200px;"><div style="font-weight:600;margin-bottom:4px;">${order.addr.replace(', USA','').replace(' USA','')}</div><div style="font-size:13px;color:#666;"><div>Order #${order.num||'N/A'}</div><div>${order.client||'N/A'}</div><div>Fee: ${feeDisplay}</div>${order.startDate?`<div>Insp: ${formatDate(order.startDate)}</div>`:''} ${order.dueDate?`<div>Due: ${formatDate(order.dueDate)}</div>`:''}</div></div>`);
+                marker.bindPopup(`<div style="min-width:200px;"><div style="margin-bottom:4px;"><a href="#" class="map-popup-link" onclick="openOrderFromMap('${order.id}');return false;">${order.addr.replace(', USA','').replace(' USA','')}</a></div><div style="font-size:13px;color:#666;"><div>Order #${order.num||'N/A'}</div><div>${order.client||'N/A'}</div><div>Fee: ${feeDisplay}</div>${order.startDate?`<div>Insp: ${formatDate(order.startDate)}</div>`:''} ${order.dueDate?`<div>Due: ${formatDate(order.dueDate)}</div>`:''}</div></div>`);
                 markers.push(marker);
             });
             if (markers.length > 0) {
@@ -788,6 +790,22 @@
                 else map.fitBounds(bounds, { padding:[50,50], maxZoom:14, minZoom:11 });
             }
         }
+    }
+    // Popup address link: jump to the Orders tab and open that order's detail modal
+    function openOrderFromMap(id) {
+        const order = data.orders.find(o => String(o.id) === String(id));
+        if (!order) return;
+        // Defer so Leaflet finishes handling the click before the map is torn down
+        setTimeout(() => {
+            if (map) { map.remove(); map = null; markers = []; heatmap = null; }
+            data.tab = 'Orders';
+            data.filter = order.status;
+            data.search = '';
+            data.selected = order;
+            data.edit = false;
+            render();
+            window.scrollTo(0, 0);
+        }, 0);
     }
     function toggleMapView() {
         data.mapView = data.mapView === 'pins' ? 'heatmap' : 'pins';
