@@ -107,7 +107,7 @@
         .list-head { display:grid; gap:0 18px; align-items:center; padding:9px 16px 9px 19px; background:#FBFBFC; border-bottom:1px solid #E8EAED; }
         .list-head span { font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9CA3AF; }
         .row-grid { display:grid; gap:0 18px; align-items:center; }
-        .list-head, .row-grid { grid-template-columns:minmax(0,1fr) 118px 92px 88px 104px 140px 44px 40px; }
+        .list-head, .row-grid { grid-template-columns:minmax(0,1fr) 118px 92px 88px 140px 104px 44px 40px; }
         .cons-head, .cons-grid { grid-template-columns:minmax(0,1fr) 96px 200px 140px 190px 128px 40px; }
         .order-card.list-row { border-radius:0 !important; box-shadow:none !important; border-top:0; border-right:0; border-bottom:1px solid #F1F2F4; padding-top:0; padding-bottom:0; }
         .order-card.list-row:hover { background-color:#FAFBFC; box-shadow:none !important; }
@@ -1165,7 +1165,7 @@
             </div>
             <div class="${filtered.length===0?'':'list-shell'}">
                 ${filtered.length===0?'':`<div class="list-head hidden md:grid">
-                    <span>Property</span><span>Client</span><span>Order</span><span style="text-align:right;">Fee</span><span>Due</span><span>Inspection</span><span></span><span></span>
+                    <span>Property</span><span>Client</span><span>Order</span><span style="text-align:right;">Fee</span><span>Inspection</span><span>Due</span><span></span><span></span>
                 </div>`}
                 ${filtered.map(o => {
                     const isOverdue = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
@@ -1189,8 +1189,8 @@
                             <div class="text-gray-600 truncate" style="font-size:13.5px;">${o.client||'—'}</div>
                             <div class="mono text-gray-500" style="font-size:12.5px;">${o.num||'—'}</div>
                             <div class="mono font-semibold text-gray-900" style="font-size:13.5px;text-align:right;">${o.fee?(o.fee.toString().startsWith('$')?o.fee:'$'+o.fee):'—'}</div>
-                            <div>${o.dueDate?`<span class="date-chip ${isOverdue?'date-chip-late':(dueSoon?'date-chip-warn':'')}">${formatDate(o.dueDate)}</span>`:'<span class="text-gray-300">—</span>'}</div>
                             <div class="text-gray-600" style="font-size:13px;">${o.startDate?`${formatDate(o.startDate)}${o.startTime?` · ${formatTime12(o.startTime)}`:''}` : '<span class="text-gray-300">—</span>'}</div>
+                            <div>${o.dueDate?`<span class="date-chip ${isOverdue?'date-chip-late':(dueSoon?'date-chip-warn':'')}">${formatDate(o.dueDate)}</span>`:'<span class="text-gray-300">—</span>'}</div>
                             <div>${o.fha?`<span class="text-xs font-semibold px-1.5 py-0.5 rounded" style="background:#EFF6FF;color:#1D4ED8;">FHA</span>`:''}</div>
                             ${dropdownHTML}
                         </div>
@@ -1208,8 +1208,8 @@
                                 ${o.fha?`<span class="ml-auto flex-shrink-0 text-xs font-semibold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">FHA</span>`:''}
                             </div>
                             <div class="flex items-center gap-3 mt-1.5 text-sm text-gray-700">
-                                ${o.dueDate?`<span class="inline-flex items-center gap-1 ${isOverdue?'overdue-text':''}"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}</span>`:''}
                                 ${o.startDate?`<span class="inline-flex items-center gap-1"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${formatDate(o.startDate)}${o.startTime?', '+formatTime12(o.startTime):''}</span>`:''}
+                                ${o.dueDate?`<span class="inline-flex items-center gap-1 ${isOverdue?'overdue-text':''}"><svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>${formatDate(o.dueDate)}</span>`:''}
                             </div>
                         </div>
                     </div>`;
