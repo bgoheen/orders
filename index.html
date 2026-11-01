@@ -106,6 +106,12 @@
         .list-shell { background:#fff; border:1px solid #E8EAED; border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,0.03); }
         .list-head { display:grid; gap:0 18px; align-items:center; padding:9px 16px 9px 19px; background:#FBFBFC; border-bottom:1px solid #E8EAED; }
         .list-head span { font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9CA3AF; }
+        .list-head .sort-h { cursor:pointer; user-select:none; display:inline-flex; align-items:center; gap:4px; transition:color .12s; }
+        .list-head .sort-h:hover { color:#4B5563; }
+        .list-head .sort-h.active { color:#111827; }
+        .list-head .sort-h .arr { font-size:9px; opacity:0; }
+        .list-head .sort-h:hover .arr { opacity:.45; }
+        .list-head .sort-h.active .arr { opacity:1; }
         .row-grid { display:grid; gap:0 18px; align-items:center; }
         .list-head, .row-grid { grid-template-columns:minmax(0,1fr) 118px 92px 112px 140px 104px 44px 40px; }
         .cons-head, .cons-grid { grid-template-columns:minmax(0,1fr) 96px 200px 140px 190px 128px 40px; }
@@ -702,6 +708,8 @@
     // ============================================================
     const data = {
         orders: [], selected: null, filter: 'Ordered', search: '', tab: 'Orders', showNew: false, edit: false, nextNum: 1000, mapView: 'pins',
+        // Column sort for the Orders list ({key, dir}); key null = default order
+        sort: (() => { try { return JSON.parse(localStorage.getItem('orderSort')) || {key:null,dir:1}; } catch(e) { return {key:null,dir:1}; } })(),
         // Consultations
         consultations: [], consLoaded: false, consFilter: 'pending', selectedCons: null, showNewCons: false, editCons: false,
         prefillOrder: null, convertingConsId: null
@@ -854,6 +862,17 @@
             if (a.status==='Ordered' && b.status==='Ordered') { const da=a.dueDate?new Date(a.dueDate):new Date('2099-12-31'); const db=b.dueDate?new Date(b.dueDate):new Date('2099-12-31'); return da-db; }
             return 0;
         });
+        if (data.sort && data.sort.key) {
+            const val = orderSortValue;
+            const k = data.sort.key, dir = data.sort.dir;
+            filtered.sort((a,b) => {
+                const va = val(a,k), vb = val(b,k);
+                const ea = va===''||va===null, eb = vb===''||vb===null;
+                if (ea && eb) return 0; if (ea) return 1; if (eb) return -1; // blanks always last
+                const c = (typeof va==='number' && typeof vb==='number') ? va-vb : String(va).localeCompare(String(vb), undefined, {numeric:true, sensitivity:'base'});
+                return c*dir;
+            });
+        }
         const ordered = data.orders.filter(o=>o.status==='Ordered').length;
         const completed = data.orders.filter(o=>o.status==='Completed').length;
         const cancelled = data.orders.filter(o=>o.status==='Cancelled').length;
@@ -1146,6 +1165,28 @@
     // ============================================================
     // ORDERS VIEW
     // ============================================================
+    function orderSortValue(o, k) {
+        if (k==='addr') return (o.addr||'').replace(/^\s*\d+[A-Za-z]?\s+/, '').toLowerCase() + ' ' + (o.addr||''); // street name first, then number
+        if (k==='client') return (o.client||'').toLowerCase();
+        if (k==='num') { if (!o.num) return ''; const p=o.num.split('-'); return (parseInt(p[0])||0)*100000 + (parseInt(p[p.length-1])||0); }
+        if (k==='inspection') return o.startDate ? o.startDate + ' ' + (o.startTime||'99:99') : '';
+        if (k==='due') return o.dueDate || '';
+        return '';
+    }
+    function setOrderSort(k) {
+        const s = data.sort || {key:null,dir:1};
+        // Click cycles: ascending, descending, back to default
+        if (s.key!==k) data.sort = {key:k, dir:1};
+        else if (s.dir===1) data.sort = {key:k, dir:-1};
+        else data.sort = {key:null, dir:1};
+        try { localStorage.setItem('orderSort', JSON.stringify(data.sort)); } catch(e) {}
+        render();
+    }
+    function sortHead(label, k) {
+        const active = data.sort && data.sort.key===k;
+        const arrow = active && data.sort.dir===-1 ? '▼' : '▲';
+        return `<span><span class="sort-h ${active?'active':''}" onclick="setOrderSort('${k}')">${label}<span class="arr">${arrow}</span></span></span>`;
+    }
     function renderOrdersView(filtered, ordered, completed, cancelled) {
         return `
         <div class="mb-6">
@@ -1165,7 +1206,7 @@
             </div>
             <div class="${filtered.length===0?'':'list-shell'}">
                 ${filtered.length===0?'':`<div class="list-head hidden md:grid">
-                    <span>Property</span><span>Client</span><span>Order</span><span style="text-align:right;padding-right:24px;">Fee</span><span>Inspection</span><span>Due</span><span></span><span></span>
+                    ${sortHead('Property','addr')}${sortHead('Client','client')}${sortHead('Order','num')}<span style="text-align:right;padding-right:24px;">Fee</span>${sortHead('Inspection','inspection')}${sortHead('Due','due')}<span></span><span></span>
                 </div>`}
                 ${filtered.map(o => {
                     const isOverdue = o.status==='Ordered' && o.dueDate && parseLocalDate(o.dueDate) <= new Date(new Date().toDateString());
