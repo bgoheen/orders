@@ -302,6 +302,8 @@
     // ReportKit if needed and opens its New Job form already filled in.
     // Only shown on Private orders.
     const REPORTKIT_URL = 'reportkit://';
+    // Reason for the appraisal (shown in the order detail popup and sent to ReportKit)
+    const ORDER_REASONS = ['Purchase','Refinance','Pre-listing','Divorce','Estate','PMI removal','Other'];
 
     // Zoho Books bridge (Cloudflare Worker)
     const ZOHO_WORKER_URL = 'https://qbo-bridge.bgoheen.workers.dev';
@@ -501,7 +503,9 @@
         if (o.poc) params.set('clientName', o.poc);
         if (o.email) params.set('clientEmail', o.email);
         if (addr) params.set('propertyAddress', addr);
-        if (o.startDate) params.set('dateOfValue', o.startDate);
+        // Date of value = effective date for retrospective reports, else the inspection date
+        const dov = o.effectiveDate || o.startDate;
+        if (dov) params.set('dateOfValue', dov);
         if (o.dueDate) params.set('deliveryDate', o.dueDate);
         const fee = parseFee(o.fee);
         if (fee) params.set('appraisalFee', fee);
@@ -522,6 +526,8 @@
         const clientName = (o.poc || o.borrower || '').trim();
         if (clientName) params.set('client', clientName);
         if (o.startDate) params.set('inspection_date', o.startDate);
+        if (o.effectiveDate) params.set('effective_date', o.effectiveDate);
+        if (o.reason) params.set('reason', o.reason);
         return REPORTKIT_URL + 'job/new?' + params.toString();
     }
     function openCalendarInSafari(url, event) {
@@ -1424,6 +1430,7 @@
                         <div class="flex items-center gap-2 mb-2">
                             ${o.num?`<span class="mono copy-dark inline-flex items-center gap-1.5" data-copy="${String(o.num).replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="font-size:12px;letter-spacing:0.06em;color:#9CA3AF;padding:2px 6px;margin-left:-6px;">${o.num}<span data-glyph style="font-size:11px;opacity:0.55;">⧉</span></span>`:''}
                             <span class="inline-flex items-center gap-1.5" style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;background:${statusTint};color:${statusText};padding:4px 9px;border-radius:999px;"><span style="width:6px;height:6px;border-radius:50%;background:${statusDot};"></span>${o.status}</span>
+                            ${o.effectiveDate?`<span style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;background:rgba(167,139,250,0.18);color:#C4B5FD;padding:4px 9px;border-radius:999px;">Retrospective</span>`:''}
                         </div>
                         <h2 class="copy-dark inline-flex items-baseline gap-2" data-copy="${copyAddr.replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="margin:0 0 0 -8px;padding:2px 8px;font-size:23px;line-height:1.2;font-weight:650;letter-spacing:-0.02em;color:#fff;">${street}<span data-glyph style="font-size:14px;color:#9CA3AF;">⧉</span></h2>
                         ${locality?`<p style="margin:4px 0 0;font-size:14px;color:#9CA3AF;">${locality}</p>`:''}
@@ -1475,6 +1482,10 @@
                     <div class="w-40"><label class="block text-sm font-medium text-gray-700 mb-1">Time</label><input type="time" id="edit-startTime" value="${o.startTime||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
                     <div><label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label><input type="date" id="edit-dueDate" value="${o.dueDate||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"></div>
                 </div>
+                <div class="grid grid-cols-2 gap-4 mt-4">
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Reason</label><select id="edit-reason" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"><option value="">Select a reason...</option>${[...new Set([...ORDER_REASONS, o.reason].filter(Boolean))].map(r=>`<option value="${r}" ${r===o.reason?'selected':''}>${r}</option>`).join('')}</select></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Effective Date</label><input type="date" id="edit-effectiveDate" value="${o.effectiveDate||''}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"><p class="mt-1 text-xs text-gray-500">Retrospective only. Blank = inspection date.</p></div>
+                </div>
             </div>
             <div><label class="block text-sm font-medium text-gray-700 mb-1">Notes</label><textarea id="edit-desc" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900">${o.desc||''}</textarea></div>
             <div class="flex items-center justify-between pt-4 border-t border-gray-200">
@@ -1495,10 +1506,12 @@
         const stats = [];
         if (o.fee) stats.push(['Fee', `${o.fee.toString().startsWith('$')?o.fee:'$'+o.fee}`]);
         if (o.startDate||o.startTime) stats.push(['Inspection', `${o.startDate?formatDate(o.startDate):''}${(o.startDate&&o.startTime)?' · ':''}${o.startTime?formatTime12(o.startTime):''}`]);
+        if (o.effectiveDate) stats.push(['Effective', formatDate(o.effectiveDate)]);
         if (o.dueDate) stats.push(['Due', formatDate(o.dueDate)]);
         // Contact fields (only present ones), with copy where useful
         const contacts = [];
         if (o.client) contacts.push(['Client', o.client, null]);
+        if (o.reason) contacts.push(['Reason', o.reason, null]);
         if (o.borrower) contacts.push(['Borrower', o.borrower, 'borrower']);
         if (o.poc) contacts.push(['POC', o.poc, 'poc']);
         if (o.phone) contacts.push(['Phone', o.phone, 'phone']);
@@ -1582,6 +1595,15 @@
                             <label class="fi flex items-center gap-2 cursor-pointer" style="background:#FBFBFC;"><input type="checkbox" id="new-fha" class="w-4 h-4 rounded border-gray-300" style="accent-color:#111827;"><span class="text-sm text-gray-600">FHA appraisal</span></label>
                         </div>
 
+                        <div><label class="fl">Reason</label>
+                            <select id="new-reason" class="fi">
+                                <option value="">Select a reason…</option>
+                                ${ORDER_REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div><label class="fl">Effective Date</label><input type="date" id="new-effectiveDate" class="fi"><p style="margin:5px 0 0;font-size:11.5px;color:#6B7280;">Retrospective only. Blank = inspection date.</p></div>
+                        <div></div>
+
                         <div class="col-span-2"><label class="fl">Notes</label><textarea id="new-desc" rows="2" class="fi" style="resize:vertical;"></textarea></div>
                         ${msalAccount?`<div><label class="fl">Files</label><div onclick="document.getElementById('new-file-upload').click()" class="fi flex items-center justify-center gap-2 cursor-pointer" style="border-style:dashed;color:#9CA3AF;background:#FBFBFC;"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v12m0-12l-4 4m4-4l4 4M4 20h16"/></svg><span class="text-sm">Upload files</span></div><input type="file" id="new-file-upload" multiple onchange="handleNewFileSelect(event)" class="hidden"><div id="new-files-list" class="mt-1.5 text-xs text-gray-500"></div></div>`:''}
                     </div>
@@ -1611,7 +1633,7 @@
         if (!addr.trim()) { await showAlert('Address is required', 'warning'); return; }
         const location = window.editOrderLocation || {};
         order.addr = location.addr || addr; order.city = location.city || order.city || ''; order.state = location.state || order.state || ''; order.zip = location.zip || order.zip || '';
-        order.fee = document.getElementById('edit-fee').value; order.client = document.getElementById('edit-client').value; order.borrower = document.getElementById('edit-borrower').value; order.poc = document.getElementById('edit-poc').value; order.phone = document.getElementById('edit-phone').value; order.email = document.getElementById('edit-email').value; order.loan = document.getElementById('edit-loan').value; order.fha = document.getElementById('edit-fha').checked; order.status = document.getElementById('edit-status').value; order.dueDate = document.getElementById('edit-dueDate').value; order.startDate = document.getElementById('edit-startDate').value; order.startTime = document.getElementById('edit-startTime').value; order.desc = document.getElementById('edit-desc').value;
+        order.fee = document.getElementById('edit-fee').value; order.client = document.getElementById('edit-client').value; order.borrower = document.getElementById('edit-borrower').value; order.poc = document.getElementById('edit-poc').value; order.phone = document.getElementById('edit-phone').value; order.email = document.getElementById('edit-email').value; order.loan = document.getElementById('edit-loan').value; order.fha = document.getElementById('edit-fha').checked; order.status = document.getElementById('edit-status').value; order.dueDate = document.getElementById('edit-dueDate').value; order.startDate = document.getElementById('edit-startDate').value; order.startTime = document.getElementById('edit-startTime').value; order.effectiveDate = document.getElementById('edit-effectiveDate').value; order.reason = document.getElementById('edit-reason').value; order.desc = document.getElementById('edit-desc').value;
         if (order.status==='Completed'&&!order.completedDate) order.completedDate=new Date().toISOString();
         const finish = () => { save(); data.selected=null; data.edit=false; window.editOrderLocation=null; render(); };
         if (location.lat&&location.lng) { order.lat=location.lat; order.lng=location.lng; finish(); }
@@ -1622,7 +1644,7 @@
         const addr = document.getElementById('new-addr').value;
         if (!addr.trim()) { await showAlert('Address is required', 'warning'); return; }
         const location = window.newOrderLocation || {};
-        const newOrder = { id: Date.now().toString(), status: 'Ordered', created: new Date().toISOString(), addr: location.addr||addr, city: location.city||'', state: location.state||'', zip: location.zip||'', lat: location.lat, lng: location.lng, fee: document.getElementById('new-fee').value, client: document.getElementById('new-client').value, borrower: document.getElementById('new-borrower').value, poc: document.getElementById('new-poc').value, phone: document.getElementById('new-phone').value, email: document.getElementById('new-email').value, loan: document.getElementById('new-loan').value, fha: document.getElementById('new-fha').checked, dueDate: document.getElementById('new-dueDate').value, startDate: document.getElementById('new-startDate').value, startTime: document.getElementById('new-startTime').value, desc: document.getElementById('new-desc')?document.getElementById('new-desc').value:'', num: genNumber(), att: [] };
+        const newOrder = { id: Date.now().toString(), status: 'Ordered', created: new Date().toISOString(), addr: location.addr||addr, city: location.city||'', state: location.state||'', zip: location.zip||'', lat: location.lat, lng: location.lng, fee: document.getElementById('new-fee').value, client: document.getElementById('new-client').value, borrower: document.getElementById('new-borrower').value, poc: document.getElementById('new-poc').value, phone: document.getElementById('new-phone').value, email: document.getElementById('new-email').value, loan: document.getElementById('new-loan').value, fha: document.getElementById('new-fha').checked, dueDate: document.getElementById('new-dueDate').value, startDate: document.getElementById('new-startDate').value, startTime: document.getElementById('new-startTime').value, effectiveDate: document.getElementById('new-effectiveDate').value, reason: document.getElementById('new-reason').value, desc: document.getElementById('new-desc')?document.getElementById('new-desc').value:'', num: genNumber(), att: [] };
         const finish = async () => {
             // Handle file uploads
             const fi = document.getElementById('new-file-upload');
