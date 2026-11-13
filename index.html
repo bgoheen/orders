@@ -1426,8 +1426,8 @@
         const statusText = { ordered:'#FCD34D', completed:'#6EE7B7', cancelled:'#D1D5DB' }[o.status.toLowerCase()] || '#D1D5DB';
         return `
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-overlay" onclick="if(event.target===this)closeDetailModal();">
-            <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation();">
-                <div class="modal-hdr sticky top-0 z-10 px-6 pt-5 pb-5 flex items-start justify-between gap-4 rounded-t-2xl">
+            <div class="bg-white rounded-2xl w-full max-w-3xl ${data.edit?'max-h-[96vh]':'max-h-[90vh]'} overflow-y-auto" onclick="event.stopPropagation();">
+                <div class="modal-hdr sticky top-0 z-10 px-6 ${data.edit?'py-4':'pt-5 pb-5'} flex items-start justify-between gap-4 rounded-t-2xl">
                     ${data.edit?`<div class="min-w-0"><h2 style="margin:0;font-size:20px;font-weight:650;letter-spacing:-0.02em;color:#fff;">Edit Order</h2><p style="margin:3px 0 0;font-size:12.5px;color:#9CA3AF;">${o.num?o.num+' · ':''}${street}</p></div>`:`<div class="min-w-0">
                         <div class="flex items-center gap-2 mb-2">
                             ${o.num?`<span class="mono copy-dark inline-flex items-center gap-1.5" data-copy="${String(o.num).replace(/"/g,'&quot;')}" onclick="copyField(this)" title="Click to copy" style="font-size:12px;letter-spacing:0.06em;color:#9CA3AF;padding:2px 6px;margin-left:-6px;">${o.num}<span data-glyph style="font-size:11px;opacity:0.55;">⧉</span></span>`:''}
@@ -1442,7 +1442,7 @@
                         <button onclick="data.selected=null;data.edit=false;render();" class="p-2 rounded-lg hdr-icon-btn"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
                     </div>
                 </div>
-                <div class="p-6">
+                <div class="${data.edit?'px-6 pt-5 pb-6':'p-6'}">
                     ${data.edit ? renderEditForm(o) : renderViewMode(o)}
                 </div>
             </div>
@@ -1481,17 +1481,17 @@
                         ${reasons.map(r=>`<option value="${r}" ${r===o.reason?'selected':''}>${r}</option>`).join('')}
                     </select>
                 </div>
-                <div><label class="fl">Effective Date</label><input type="date" id="edit-effectiveDate" value="${o.effectiveDate||''}" class="fi"><p style="margin:5px 0 0;font-size:11.5px;color:#6B7280;">Retrospective only. Blank = inspection date.</p></div>
+                <div><label class="fl">Effective Date</label><input type="date" id="edit-effectiveDate" value="${o.effectiveDate||''}" class="fi"></div>
                 <div><label class="fl">Status</label>
                     <select id="edit-status" class="fi">${['Ordered','Completed','Cancelled'].map(st=>`<option value="${st}" ${o.status===st?'selected':''}>${st}</option>`).join('')}</select>
                 </div>
 
-                <div class="col-span-2"><label class="fl">Notes</label><textarea id="edit-desc" rows="3" class="fi" style="resize:vertical;">${o.desc||''}</textarea></div>
+                <div class="col-span-2"><label class="fl">Notes</label><textarea id="edit-desc" rows="2" class="fi" style="resize:vertical;">${o.desc||''}</textarea></div>
                 <div><label class="fl">FHA</label>
                     <label class="fi flex items-center gap-2 cursor-pointer" style="background:#FBFBFC;"><input type="checkbox" id="edit-fha" ${o.fha?'checked':''} class="w-4 h-4 rounded border-gray-300" style="accent-color:#111827;"><span class="text-sm text-gray-600">FHA appraisal</span></label>
                 </div>
             </div>
-            <div class="-mx-6 -mb-6 mt-6 px-6 py-4 flex items-center justify-between gap-3 border-t border-gray-200 rounded-b-2xl" style="background:#FBFBFC;">
+            <div class="-mx-6 -mb-6 mt-4 px-6 py-3.5 flex items-center justify-between gap-3 border-t border-gray-200 rounded-b-2xl" style="background:#FBFBFC;">
                 <button onclick="deleteOrder('${o.id}')" class="px-3 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium text-sm">Delete Order</button>
                 <div class="flex gap-3">
                     <button onclick="data.edit=false;render();" class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-white font-medium text-sm">Cancel</button>
@@ -1604,7 +1604,7 @@
                                 ${ORDER_REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}
                             </select>
                         </div>
-                        <div><label class="fl">Effective Date</label><input type="date" id="new-effectiveDate" class="fi"><p style="margin:5px 0 0;font-size:11.5px;color:#6B7280;">Retrospective only. Blank = inspection date.</p></div>
+                        <div><label class="fl">Effective Date</label><input type="date" id="new-effectiveDate" class="fi"></div>
                         <div></div>
 
                         <div class="col-span-2"><label class="fl">Notes</label><textarea id="new-desc" rows="2" class="fi" style="resize:vertical;"></textarea></div>
